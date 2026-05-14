@@ -7,6 +7,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:setup": "createdb magenta 2>/dev/null || true",
+    "db:studio": "drizzle-kit studio",
     "predev": "pnpm db:migrate",
     "dev": "next dev",
     "build": "next build",
@@ -17,7 +18,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.141",
     "ai": "5.0.188",
-    "drizzle-orm": "^0.36.4",
+    "drizzle-orm": "^0.38.4",
     "next": "^15.5.0",
     "ollama-ai-provider-v2": "1.5.5",
     "postgres": "^3.4.5",
