@@ -35,7 +35,7 @@ const MODES: Mode[] = [
     id: "council",
     title: "Council",
     description: "3–4 models answer. Each scores the others 0–100.",
-    ready: false,
+    ready: true,
   },
   {
     id: "synthesis",

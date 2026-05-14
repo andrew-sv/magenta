@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { CouncilView } from "@/components/CouncilView";
 import { FanoutView } from "@/components/FanoutView";
 import { LoopView } from "@/components/LoopView";
 import { SingleChatView } from "@/components/SingleChatView";
@@ -23,6 +24,7 @@ export default async function ChatPage({
     case "loop":
       return <LoopView conversation={conversation} />;
     case "council":
+      return <CouncilView conversation={conversation} />;
     case "synthesis":
       return (
         <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-3 p-8 text-center">

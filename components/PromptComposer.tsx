@@ -26,7 +26,7 @@ export function PromptComposer({ onSubmit, onAbort, busy, placeholder, disabled 
       onSubmit={handleSubmit}
       className="border-t border-neutral-200 bg-white px-6 py-4 dark:border-neutral-800 dark:bg-neutral-950"
     >
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-3">
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
