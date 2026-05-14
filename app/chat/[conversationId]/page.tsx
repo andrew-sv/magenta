@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { FanoutView } from "@/components/FanoutView";
+import { LoopView } from "@/components/LoopView";
 import { SingleChatView } from "@/components/SingleChatView";
 import { getConversation } from "@/lib/db/queries";
 
@@ -20,6 +21,7 @@ export default async function ChatPage({
     case "fanout":
       return <FanoutView conversation={conversation} />;
     case "loop":
+      return <LoopView conversation={conversation} />;
     case "council":
     case "synthesis":
       return (

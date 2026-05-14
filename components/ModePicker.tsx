@@ -29,7 +29,7 @@ const MODES: Mode[] = [
     id: "loop",
     title: "Loop (A ↔ B)",
     description: "Model A answers, Model B asks follow-ups. Stops after N rounds.",
-    ready: false,
+    ready: true,
   },
   {
     id: "council",
