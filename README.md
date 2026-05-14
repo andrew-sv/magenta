@@ -4,7 +4,7 @@ Local multi-agent chat. Talk to one model, several models in parallel, two model
 
 Runs entirely on your machine. Models are reached through:
 
-- **Anthropic Claude** via API key
+- **Anthropic Claude** via the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), authenticated against your **Claude Pro / Max subscription** (no API key needed — calls bill against your subscription quota)
 - **Ollama** for local models
 
 Designed so adding **OpenAI**, **Gemini**, and **xAI** later is a drop-in change.
@@ -23,20 +23,28 @@ Designed so adding **OpenAI**, **Gemini**, and **xAI** later is a drop-in change
 
 - **Node 20+**
 - **pnpm** (`corepack enable && corepack prepare pnpm@latest --activate`)
-- **Docker** (for Postgres)
+- **Postgres 16** running locally (`brew install postgresql@16 && brew services start postgresql@16` on macOS)
 - **Ollama** running natively if you want local models (`brew install ollama` on macOS, then `ollama serve`)
-- **Anthropic API key** if you want Claude models
+- **Claude Code CLI** installed and logged into your Pro/Max subscription (`claude login`) if you want Claude models
 
 ## Quick start
 
 ```bash
+# One-time DB setup
+brew install postgresql@16
+brew services start postgresql@16
+createdb magenta
+
 cp .env.example .env
-# fill ANTHROPIC_API_KEY, pull at least one Ollama model: ollama pull llama3.1
+# Edit DATABASE_URL so the username matches your macOS login (default is `whoami`)
+# (optional) pull at least one Ollama model: ollama pull llama3.1
+# (optional) log into Claude: claude login
+
 pnpm install
 pnpm dev
 ```
 
-`pnpm dev` brings up the Postgres container, runs migrations, and starts Next.js on http://localhost:3000.
+`pnpm dev` runs Drizzle migrations and starts Next.js on http://localhost:3000.
 
 ## Environment variables
 
@@ -44,11 +52,12 @@ See `.env.example`. The minimum:
 
 ```
 DATABASE_URL=postgres://magenta:magenta@localhost:5432/magenta
-ANTHROPIC_API_KEY=          # optional but needed for Claude
 OLLAMA_BASE_URL=http://localhost:11434
 DEFAULT_LOOP_ROUNDS=3
 MAGENTA_LOCAL_ONLY=true     # 403s any non-loopback request to /api/*
 ```
+
+Claude auth lives **outside** `.env` — the Claude Agent SDK reads your existing `~/.claude/` credentials, which are set up by `claude login`. There is no API key to paste.
 
 ## Architecture
 

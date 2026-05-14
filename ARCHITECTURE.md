@@ -1,6 +1,6 @@
 # Architecture
 
-Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**, **Vercel AI SDK** for streaming over SSE.
+Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**. Streaming uses **Vercel AI SDK** (for Ollama and future OpenAI/Gemini/xAI) and the **Claude Agent SDK** (for Claude, billed against the user's Pro/Max subscription) behind a single internal abstraction.
 
 ## Goals & non-goals
 
@@ -29,7 +29,6 @@ lib/
 components/  ModePicker | ModelSelect | PromptComposer | ConversationPane
              MultiPaneLayout | LoopView | CouncilView | SynthesisView | AbortButton
 drizzle/                           # generated migrations
-docker-compose.yml                 # postgres only
 drizzle.config.ts
 .env.example
 middleware.ts                      # MAGENTA_LOCAL_ONLY guard on /api/*
@@ -39,21 +38,41 @@ Orchestrators are pure server functions — `(params, signal, db, emit) → Read
 
 ## Provider abstraction
 
-`lib/ai/providers.ts` builds one provider object per integration:
+We can't use the Vercel AI SDK uniformly because Claude is reached through the **Claude Agent SDK** (subscription-billed via `claude login`), which has a different surface than `LanguageModel`. So orchestrators talk to a small in-house interface, and each backing SDK has its own adapter.
 
 ```ts
-providers = {
-  anthropic: createAnthropic({ apiKey: env.ANTHROPIC_API_KEY }),
-  ollama:    createOllama({ baseURL: env.OLLAMA_BASE_URL }),
+// lib/ai/types.ts
+export type ChatMessage = { role: "user" | "assistant" | "system"; content: string }
+
+export interface ChatProvider {
+  stream(params: {
+    modelName: string
+    messages: ChatMessage[]
+    system?: string
+    signal: AbortSignal
+  }): AsyncIterable<{ type: "text-delta"; delta: string }>
+
+  generateObject<T>(params: {
+    modelName: string
+    messages: ChatMessage[]
+    system?: string
+    schema: z.ZodType<T>
+    signal: AbortSignal
+  }): Promise<T | null>     // null on irrecoverable parse/validation failure
 }
 ```
+
+`lib/ai/providers/` holds two adapters:
+
+- **`anthropic-agent.ts`** — wraps `query()` from `@anthropic-ai/claude-agent-sdk` with `tools: []`, `includePartialMessages: true`, and an `abortController`. Token deltas come from `SDKPartialAssistantMessage` events. `generateObject` is implemented by prompting for JSON-only output and validating with zod (with up to 2 retries).
+- **`vercel.ts`** — wraps `streamText` / `generateObject` from the Vercel AI SDK. Currently used for Ollama via `ollama-ai-provider-v2`; future hosted providers (OpenAI, Gemini, xAI) plug in here.
 
 `lib/ai/catalog.ts` exports a static, typed `MODEL_CATALOG`:
 
 ```ts
 type ModelDescriptor = {
-  id: string                  // "anthropic:claude-sonnet-4-5"
-  label: string               // "Claude Sonnet 4.5"
+  id: string                       // "anthropic:claude-opus-4-7"
+  label: string                    // "Claude Opus 4.7"
   providerId: "anthropic" | "ollama" | "openai" | "google" | "xai"
   modelName: string
   contextWindow: number
@@ -61,9 +80,9 @@ type ModelDescriptor = {
 }
 ```
 
-`lib/ai/resolve.ts` splits the id and returns a `LanguageModel`. **Orchestrators only see `LanguageModel`.** Adding OpenAI/Gemini/xAI later is: install the provider package, add a factory in `providers.ts`, append entries to `catalog.ts`. No call-site changes.
+`lib/ai/resolve.ts` returns `{ provider: ChatProvider; modelName: string }` for a given id. **Orchestrators only see `ChatProvider`.** Adding a hosted provider later: append entries in `catalog.ts` and route the providerId to the right adapter in `resolve.ts`.
 
-`/api/models` returns the catalog with each Ollama entry's availability resolved by calling `GET {OLLAMA_BASE_URL}/api/tags` at request time — unpulled models render as disabled in the UI.
+`/api/models` returns the catalog with each Ollama entry's availability resolved by calling `GET {OLLAMA_BASE_URL}/api/tags` at request time — unpulled models render as disabled in the UI. Anthropic entries are gated by checking that the Agent SDK can authenticate (the SDK emits an `authentication_failed` event if `claude login` has not been run); we cache that result.
 
 Ollama uses `ollama-ai-provider-v2` (native AI SDK v5 provider). Fallback path: `@ai-sdk/openai-compatible` against `http://localhost:11434/v1`, switched via `OLLAMA_MODE=native|openai`.
 
@@ -176,17 +195,16 @@ B's system prompt: *"Given the previous answer, ask one probing follow-up questi
 Context window guard: pass at most the last K turns (default 6) into each call; older turns are dropped or summarized when approaching `0.7 * model.contextWindow`.
 
 ### Case 4 — Council with cross-scoring
-Single SSE stream multiplexing N member streams. After all `member.complete` events fire, scoring runs N × (N − 1) parallel `generateObject` calls (each model scores every other member):
+Single SSE stream multiplexing N member streams. After all `member.complete` events fire, scoring runs N × (N − 1) parallel `provider.generateObject` calls (each model scores every other member). The shared schema:
 
-```
-generateObject({
-  model: resolveModel(scorerId),
-  schema: z.object({ score: z.number().int().min(0).max(100), brief_reason: z.string().optional() }),
-  prompt: "Score the following response 0–100 for correctness and usefulness..."
+```ts
+z.object({
+  score: z.number().int().min(0).max(100),
+  brief_reason: z.string().optional(),
 })
 ```
 
-Up to 2 retries per scoring call. On final failure, write `score: null` and exclude from the average. Self-scoring is skipped entirely.
+The Vercel adapter routes this to AI SDK's native `generateObject`; the Claude Agent adapter prompts for JSON-only output and validates locally. Both retry up to 2 times. On final failure, the row in `scores` records `score: null` and the value is excluded from the average. Self-scoring is skipped entirely.
 
 Averages are computed by SQL and emitted on `scoring.complete`; per-scorer breakdown is fetchable from `scores` for the hover tooltip.
 
@@ -225,5 +243,6 @@ Every chat route handler creates an `AbortController` and ties `request.signal` 
 1. **Ollama serializes generations per loaded model.** A 3-Ollama council is sequential. Mix providers or accept it.
 2. **Local-model JSON unreliability.** `generateObject` + retries + `null` fallback. Don't gate the UI on perfect scoring output.
 3. **Case 3 context blow-up.** Cap at last K turns; summarize older if you hit `0.7 * contextWindow`.
-4. **AI SDK churn.** Pin exact versions. Own the SSE event schema.
-5. **Branching message model.** Cleaner schema, mode-aware rendering on the view layer.
+4. **AI SDK + Claude Agent SDK churn.** Pin exact versions for `ai`, `@anthropic-ai/claude-agent-sdk`, and `ollama-ai-provider-v2`. Own the SSE event schema rather than relying on either SDK's protocol events.
+5. **Claude subscription quota.** All Claude calls consume the user's Pro/Max quota; council/synthesis mode multiplies usage by `N * (N − 1) + N` calls per turn. The UI should surface quota-exhaustion errors clearly (the Agent SDK reports them as `error: 'rate_limit'` on `SDKAssistantMessage`).
+6. **Branching message model.** Cleaner schema, mode-aware rendering on the view layer.

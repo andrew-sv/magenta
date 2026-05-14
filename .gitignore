@@ -1,0 +1,22 @@
+node_modules
+.next
+out
+build
+dist
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+.DS_Store
+*.log
+.turbo
+.vercel
+
+# Drizzle migration output keeps under version control; only ignore the snapshot cache
+drizzle/meta/_journal.tmp.json
+
+# TypeScript / Next
+next-env.d.ts
+tsconfig.tsbuildinfo
