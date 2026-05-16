@@ -1,11 +1,12 @@
 # Magenta
 
-Local multi-agent chat. Talk to one model, several models in parallel, two models in a question/answer loop, or a council of models that score each other and (optionally) synthesize a combined answer.
+Local multi-agent chat. Talk to one model, several models in parallel, two models in a question/answer loop, a council of models that score each other and (optionally) synthesize a combined answer, or fan out **image generation** across multiple local diffusion checkpoints.
 
 Runs entirely on your machine. Models are reached through:
 
 - **Anthropic Claude** via the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), authenticated against your **Claude Pro / Max subscription** (no API key needed — calls bill against your subscription quota)
-- **Ollama** for local models
+- **Ollama** for local text/vision models
+- **ComfyUI** for local image generation (SDXL, FLUX, etc.)
 
 Designed so adding **OpenAI**, **Gemini**, and **xAI** later is a drop-in change.
 
@@ -18,6 +19,9 @@ Designed so adding **OpenAI**, **Gemini**, and **xAI** later is a drop-in change
 | **Loop**      | Pick Model A (answerer) and Model B (questioner). You write one prompt; the pair takes N rounds (default 3). |
 | **Council**   | 3–4 models answer the same prompt in parallel. Each model scores the others 0–100. Averages shown per response. |
 | **Synthesis** | Council + a final synthesizer model that combines all responses into one answer.            |
+| **Imagine**   | Two or more image checkpoints, same prompt, side-by-side tiles. Powered by a local ComfyUI server. |
+
+Past sessions are browsable at `/chats/history` (text modes) and `/imagine/history` (gallery view).
 
 ## Requirements
 
@@ -26,6 +30,7 @@ Designed so adding **OpenAI**, **Gemini**, and **xAI** later is a drop-in change
 - **Postgres 16** running locally (`brew install postgresql@16 && brew services start postgresql@16` on macOS)
 - **Ollama** running natively if you want local models (`brew install ollama` on macOS, then `ollama serve`)
 - **Claude Code CLI** installed and logged into your Pro/Max subscription (`claude login`) if you want Claude models
+- **ComfyUI** running locally if you want Imagine mode. The [ComfyUI Desktop app](https://www.comfy.org/download) binds to `127.0.0.1:8000`; the CLI distribution typically binds to `:8188`. Drop checkpoints into `models/checkpoints/`.
 
 ## Quick start
 
@@ -53,8 +58,9 @@ See `.env.example`. The minimum:
 ```
 DATABASE_URL=postgres://magenta:magenta@localhost:5432/magenta
 OLLAMA_BASE_URL=http://localhost:11434
+COMFYUI_BASE_URL=http://127.0.0.1:8000   # 8188 if you run the CLI distribution
 DEFAULT_LOOP_ROUNDS=3
-MAGENTA_LOCAL_ONLY=true     # 403s any non-loopback request to /api/*
+MAGENTA_LOCAL_ONLY=true                  # 403s any non-loopback request to /api/*
 ```
 
 Claude auth lives **outside** `.env` — the Claude Agent SDK reads your existing `~/.claude/` credentials, which are set up by `claude login`. There is no API key to paste.

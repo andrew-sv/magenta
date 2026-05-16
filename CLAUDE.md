@@ -4,14 +4,14 @@ Working notes for Claude (or any coding agent) on this repo.
 
 ## What this is
 
-Local multi-agent chat. Next.js (App Router) + TypeScript + Postgres + Drizzle. Vercel AI SDK for streaming. Five modes: single, fanout, loop, council, synthesis. See `README.md` and `ARCHITECTURE.md` first.
+Local multi-agent chat. Next.js (App Router) + TypeScript + Postgres + Drizzle. Vercel AI SDK for text streaming, ComfyUI for image generation. Six modes: single, fanout, loop, council, synthesis, imagine. See `README.md` and `ARCHITECTURE.md` first.
 
 ## Ground rules
 
 - **No tests scaffolded yet.** Don't add a test framework or write tests unless explicitly asked.
 - **No new docs files** beyond `README.md`, `ARCHITECTURE.md`, `CLAUDE.md`. Don't drop `NOTES.md` / planning markdown unless the user asks.
 - **Defaults are intentional.** No API keys for Claude — auth lives in `~/.claude/` and is set up by `claude login`. Ollama is keyless by design. No UI for keys. No auth on the app itself. Single local user.
-- **Provider abstraction is sacred.** Orchestrators only see the internal `ChatProvider` interface in `lib/ai/types.ts`. Don't import `@anthropic-ai/claude-agent-sdk`, `ai`, or `ollama-ai-provider-v2` inside orchestrators, routes, or components. Adding a provider = new adapter in `lib/ai/providers/`, route it in `lib/ai/resolve.ts`, append entries to `lib/ai/catalog.ts`. Nothing else.
+- **Provider abstraction is sacred.** Orchestrators only see the internal `ChatProvider` / `ImageProvider` interfaces in `lib/ai/types.ts`. Don't import `@anthropic-ai/claude-agent-sdk`, `ai`, `ollama-ai-provider-v2`, or call ComfyUI's HTTP/WS API inside orchestrators, routes, or components. Adding a provider = new adapter in `lib/ai/providers/`, route it in `lib/ai/resolve.ts` (`resolveModel` for text, `resolveImageModel` for image), append entries to `lib/ai/catalog.ts` with the right `kind`. Nothing else.
 - **One route per mode.** Don't unify the chat endpoints behind a `mode` discriminator — each route owns its own SSE event schema.
 - **Own the SSE schema.** Use the custom writer in `lib/sse/`. Do not return `streamText().toDataStreamResponse()` from route handlers; the Vercel AI SDK's protocol events change between majors. Same rule for the Claude Agent SDK — translate its messages into our typed events before emitting.
 - **Drizzle enums are append-only on Postgres.** Add new values; don't rename or remove. If you must change semantics, write a new enum and migrate.
@@ -28,6 +28,11 @@ Local multi-agent chat. Next.js (App Router) + TypeScript + Postgres + Drizzle. 
 - **Case 3 context grows fast.** Cap at last K turns (default 6) or summarize. Don't pass the full transcript into every step.
 - **Next.js dev server can buffer SSE.** Headers `Cache-Control: no-cache, no-transform` + `X-Accel-Buffering: no` are not optional — they're in the SSE writer; keep them there.
 - **`MAGENTA_LOCAL_ONLY` middleware** must guard `/api/*`. Don't disable it casually.
+- **ComfyUI's queue is serial.** Fanned-out imagine prompts run sequentially in ComfyUI even though we issue them in parallel. Don't claim "parallel image generation" in UI copy.
+- **ComfyUI `/interrupt` is global.** It cancels whatever's currently running, not a specific `prompt_id`. Stopping one tile can kill another tile that happens to be the one ComfyUI is processing. There is no per-prompt cancel.
+- **ComfyUI emits no progress during checkpoint load.** `progress` events come from `KSampler`. First-time FLUX load is 60-120 s on Apple Silicon with zero visible activity; that's not a hang. Use `executing { node: <id> }` events if you need a finer indicator.
+- **ComfyUI Desktop binds to `:8000`, CLI to `:8188`.** Make sure `COMFYUI_BASE_URL` matches your install. Don't hardcode a port.
+- **Generated images live in `public/generated/<conversationId>/<messageId>.png`** and are served by Next's static handler. The directory is gitignored — never commit images.
 
 ## Style
 

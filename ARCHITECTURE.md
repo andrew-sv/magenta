@@ -1,10 +1,10 @@
 # Architecture
 
-Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**. Streaming uses **Vercel AI SDK** (for Ollama and future OpenAI/Gemini/xAI) and the **Claude Agent SDK** (for Claude, billed against the user's Pro/Max subscription) behind a single internal abstraction.
+Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**. Text streaming uses **Vercel AI SDK** (for Ollama and future OpenAI/Gemini/xAI) and the **Claude Agent SDK** (for Claude, billed against the user's Pro/Max subscription) behind a single internal abstraction. Image generation uses a local **ComfyUI** server (`http://127.0.0.1:8000` for the Desktop app) over its REST + WebSocket API.
 
 ## Goals & non-goals
 
-**Goals.** Run five chat modes (single, fanout, loop, council, synthesis) against a mix of hosted (Claude) and local (Ollama) models. Persist all conversations, messages, and inter-model scores. Stream every response. Make adding providers (OpenAI, Gemini, xAI) purely additive.
+**Goals.** Run six modes (single, fanout, loop, council, synthesis, imagine) against a mix of hosted (Claude) and local (Ollama text/vision, ComfyUI image) models. Persist all conversations, messages, attachments, and inter-model scores. Stream every response. Make adding providers (OpenAI, Gemini, xAI) purely additive.
 
 **Non-goals.** Multi-user auth, sharing, accounts, billing, RAG/files, agent tools/actions, cloud deployment. This is a single-machine app.
 
@@ -13,25 +13,29 @@ Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App 
 ```
 app/
   layout.tsx
-  page.tsx                         # mode picker + new-conversation landing
-  (chat)/[conversationId]/page.tsx # renders the view matching conversation.mode
+  page.tsx                         # mode picker + links to history pages
+  chat/[conversationId]/page.tsx   # renders the view matching conversation.mode
+  chats/history/page.tsx           # text-mode conversation list, grouped by mode
+  imagine/history/page.tsx         # gallery view of past imagine sessions
   api/
-    chat/{single,fanout,loop,council,synthesis}/route.ts
+    chat/{single,fanout,loop,council,synthesis,imagine}/route.ts
     conversations/route.ts
     conversations/[id]/route.ts
     models/route.ts
 lib/
-  ai/        providers.ts | catalog.ts | resolve.ts
-  orchestrators/  single.ts | fanout.ts | loop.ts | council.ts | synthesis.ts
-  sse/       events.ts | writer.ts
+  ai/        types.ts | catalog.ts | resolve.ts | workflows.ts
+  ai/providers/  anthropic-agent.ts | vercel-ollama.ts | comfyui.ts
+  orchestrators/  single.ts | fanout.ts | loop.ts | council.ts | synthesis.ts | imagine.ts
+  sse/       events.ts | writer.ts | client.ts
   db/        client.ts | schema.ts | queries.ts | migrate.ts
   env.ts
-components/  ModePicker | ModelSelect | PromptComposer | ConversationPane
-             MultiPaneLayout | LoopView | CouncilView | SynthesisView | AbortButton
+components/  ModePicker | ModelSelect | PromptComposer | Markdown
+             SingleChatView | FanoutView | LoopView | CouncilView | SynthesisView | ImagineView
 drizzle/                           # generated migrations
 drizzle.config.ts
 .env.example
 middleware.ts                      # MAGENTA_LOCAL_ONLY guard on /api/*
+public/generated/                  # ComfyUI output, gitignored, served by Next's static handler
 ```
 
 Orchestrators are pure server functions — `(params, signal, db, emit) → ReadableStream`. Route handlers validate input, open a stream, and delegate. Each orchestrator owns its own SSE event schema.
@@ -62,27 +66,67 @@ export interface ChatProvider {
 }
 ```
 
-`lib/ai/providers/` holds two adapters:
-
-- **`anthropic-agent.ts`** — wraps `query()` from `@anthropic-ai/claude-agent-sdk` with `tools: []`, `includePartialMessages: true`, and an `abortController`. Token deltas come from `SDKPartialAssistantMessage` events. `generateObject` is implemented by prompting for JSON-only output and validating with zod (with up to 2 retries).
-- **`vercel.ts`** — wraps `streamText` / `generateObject` from the Vercel AI SDK. Currently used for Ollama via `ollama-ai-provider-v2`; future hosted providers (OpenAI, Gemini, xAI) plug in here.
-
-`lib/ai/catalog.ts` exports a static, typed `MODEL_CATALOG`:
+Image generation needs a different shape — there's no token stream, only progress + preview + final-image events — so it has a sibling interface:
 
 ```ts
-type ModelDescriptor = {
-  id: string                       // "anthropic:claude-opus-4-7"
-  label: string                    // "Claude Opus 4.7"
-  providerId: "anthropic" | "ollama" | "openai" | "google" | "xai"
-  modelName: string
-  contextWindow: number
-  capabilities: { streaming: boolean; structuredOutput: boolean }
+// lib/ai/types.ts
+export type ImageEvent =
+  | { type: "queued"; position: number }
+  | { type: "progress"; current: number; total: number }
+  | { type: "preview"; mime: string; dataBase64: string }
+  | { type: "image"; mime: string; dataBase64: string; width?: number; height?: number; seed?: number }
+
+export interface ImageProvider {
+  generate(params: {
+    modelName: string         // checkpoint filename
+    workflow: string          // workflow template name in lib/ai/workflows.ts
+    prompt: string
+    negativePrompt?: string
+    width: number; height: number; steps: number; cfg?: number; seed?: number
+    signal: AbortSignal
+  }): AsyncIterable<ImageEvent>
 }
 ```
 
-`lib/ai/resolve.ts` returns `{ provider: ChatProvider; modelName: string }` for a given id. **Orchestrators only see `ChatProvider`.** Adding a hosted provider later: append entries in `catalog.ts` and route the providerId to the right adapter in `resolve.ts`.
+`lib/ai/providers/` holds three adapters:
 
-`/api/models` returns the catalog with each Ollama entry's availability resolved by calling `GET {OLLAMA_BASE_URL}/api/tags` at request time — unpulled models render as disabled in the UI. Anthropic entries are gated by checking that the Agent SDK can authenticate (the SDK emits an `authentication_failed` event if `claude login` has not been run); we cache that result.
+- **`anthropic-agent.ts`** — wraps `query()` from `@anthropic-ai/claude-agent-sdk` with `tools: []`, `includePartialMessages: true`, and an `abortController`. Token deltas come from `SDKPartialAssistantMessage` events. `generateObject` is implemented by prompting for JSON-only output and validating with zod (with up to 2 retries).
+- **`vercel-ollama.ts`** — wraps `streamText` / `generateObject` from the Vercel AI SDK. Currently used for Ollama via `ollama-ai-provider-v2`; future hosted providers (OpenAI, Gemini, xAI) plug in here.
+- **`comfyui.ts`** — wraps ComfyUI's REST + WebSocket protocol. Opens a `/ws?clientId=…` connection, POSTs a workflow JSON to `/prompt`, demultiplexes `progress`, `executing`, `execution_success`, and binary preview frames into typed `ImageEvent`s, and fetches finished images from `/view`. Abort calls `/interrupt` (note: it is global, not per-prompt).
+
+`lib/ai/catalog.ts` exports a discriminated `MODEL_CATALOG`:
+
+```ts
+type TextModelDescriptor = {
+  id: string                       // "anthropic:claude-opus-4-7"
+  label: string
+  providerId: "anthropic" | "ollama" | "openai" | "google" | "xai"
+  modelName: string
+  kind: "text"
+  contextWindow: number
+  capabilities: { streaming: boolean; structuredOutput: boolean }
+}
+
+type ImageModelDescriptor = {
+  id: string                       // "comfyui:flux-schnell"
+  label: string
+  providerId: "comfyui"
+  modelName: string                // checkpoint filename, e.g. "flux1-schnell-fp8.safetensors"
+  kind: "image"
+  workflow: string                 // "sdxl-turbo" | "flux-schnell" | …
+  defaults: { width: number; height: number; steps: number; cfg?: number }
+}
+
+type ModelDescriptor = TextModelDescriptor | ImageModelDescriptor
+```
+
+`lib/ai/resolve.ts` exports two narrowing resolvers: **`resolveModel(id)`** returns `{ descriptor: TextModelDescriptor; provider: ChatProvider }` and throws for image ids; **`resolveImageModel(id)`** is the symmetric image-side resolver. Adding a hosted provider later: append entries in `catalog.ts` with the right `kind` and route the providerId in the matching resolver.
+
+`/api/models` returns the catalog with each entry's availability resolved at request time:
+
+- Ollama → `GET {OLLAMA_BASE_URL}/api/tags`
+- ComfyUI → `GET {COMFYUI_BASE_URL}/object_info/CheckpointLoaderSimple` (reads the checkpoint dropdown values)
+- Anthropic → marked available (we can't cheaply probe Claude auth without making a billed call; auth errors surface on first use)
 
 Ollama uses `ollama-ai-provider-v2` (native AI SDK v5 provider). Fallback path: `@ai-sdk/openai-compatible` against `http://localhost:11434/v1`, switched via `OLLAMA_MODE=native|openai`.
 
@@ -107,6 +151,7 @@ Each event is one SSE `data:` line containing JSON `{ type, ...payload }`. Share
 | `loop`       | `turn.start`, `token`, `turn.complete`, `loop.complete`, `aborted`                                |
 | `council`    | `member.start`, `member.token`, `member.complete`, `scoring.start`, `score`, `scoring.complete`   |
 | `synthesis`  | …all council events, then `synthesis.start`, `synthesis.token`, `synthesis.complete`              |
+| `imagine`    | `tile.meta`, `imagine.queued`, `imagine.progress`, `imagine.preview`, `imagine.image` (one HTTP call per tile — client opens N) |
 
 The union lives in `lib/sse/events.ts`.
 
@@ -115,7 +160,7 @@ The union lives in `lib/sse/events.ts`.
 ```
 conversations
   id uuid pk
-  mode enum(single|fanout|loop|council|synthesis)
+  mode enum(single|fanout|loop|council|synthesis|imagine)
   title text
   config jsonb            -- mode-specific setup
   created_at, updated_at
@@ -123,16 +168,17 @@ conversations
 messages
   id uuid pk
   conversation_id fk
-  parent_id uuid null     -- siblings for fanout panes / council members
+  parent_id uuid null     -- siblings for fanout panes / council members / imagine tiles
   role enum(user|assistant|system|scorer|synthesizer)
   model_id text null
-  pane_key text null      -- Case 2 pane key / Case 4 member key
+  pane_key text null      -- Case 2 pane key / Case 4 member key / Case 6 tile key
   round int null          -- Case 3 round number
-  content text
+  content text            -- prompt for imagine assistant messages
   status enum(streaming|complete|aborted|error)
   client_message_id text null
+  attachments jsonb       -- MessageAttachment[]: image refs for imagine mode (see below)
   created_at
-  UNIQUE (conversation_id, client_message_id)   -- fanout dedupe
+  UNIQUE (conversation_id, client_message_id)   -- fanout / imagine dedupe
 
 scores
   id uuid pk
@@ -161,6 +207,23 @@ runs
 - loop:      `{ modelA: string, modelB: string, maxRounds: number }`
 - council:   `{ memberIds: string[] }`
 - synthesis: `{ memberIds: string[], synthesizerId: string }`
+- imagine:   `{ tileModelIds: string[] }`
+
+`messages.attachments` is typed as `MessageAttachment[]` (see `lib/db/schema.ts`):
+
+```ts
+type MessageAttachment = {
+  kind: "image"
+  path: string              // "/generated/<conversationId>/<messageId>.png"
+  mime: string
+  width?: number
+  height?: number
+  modelId?: string
+  prompt?: string
+}
+```
+
+Defaults to `[]` for every row; only imagine assistant messages populate it.
 
 Averages for council/synthesis are computed at query time (`avg(score) GROUP BY target_message_id`).
 
@@ -217,14 +280,37 @@ Wraps the council orchestrator. After `scoring.complete`, the synthesizer model 
 
 …and streams a single combined answer. Persists as a `synthesizer`-role message.
 
+### Case 6 — Imagine
+Same client/server shape as Fanout — one HTTP call per tile, shared `clientMessageId` so the user-side `messages` row is upserted exactly once. Each call:
+
+1. Resolves the image model via `resolveImageModel(modelId)` (catalog `kind: "image"` + ComfyUI adapter).
+2. Inserts an assistant `messages` row in `streaming` status keyed by `paneKey = tileKey`, with `parent_id = userMessage.id`.
+3. Streams `ImageEvent`s from the adapter, translating to SSE events:
+   - `queued` → `imagine.queued`
+   - `progress` → `imagine.progress`
+   - `preview` → `imagine.preview` (live thumbnail, base64)
+   - `image` → write the PNG to `public/generated/<conversationId>/<messageId>.png` and emit `imagine.image` with the URL path
+4. Updates the assistant row with `content = prompt`, `attachments = [{kind: "image", path, mime, …}]`, `status = complete`.
+
+Workflow templates (`lib/ai/workflows.ts`) are TypeScript functions `(params) => ComfyWorkflow` that build the node-graph JSON ComfyUI's `/prompt` endpoint expects. Currently shipped: `sdxl-turbo`, `flux-schnell`. Adding a workflow = a new builder + a catalog entry referencing it; orchestrator code is untouched.
+
+ComfyUI's `/interrupt` endpoint is **global** — it cancels whatever's running in the queue regardless of `prompt_id`. We accept that limitation; the alternative (cross-check `/queue` before interrupting) is on the table if it bites in practice.
+
 ## Frontend
 
-`app/page.tsx` is the mode picker + landing. `app/(chat)/[conversationId]/page.tsx` reads the conversation, picks a view component by `mode`, and renders. All streaming UIs use a shared Zustand store keyed by `conversationId` for in-flight buffers; finalized content is loaded from the DB via `GET /api/conversations/[id]`.
+`app/page.tsx` is the mode picker + landing, with links to `/chats/history` and `/imagine/history`. `app/chat/[conversationId]/page.tsx` reads the conversation, picks a view component by `mode`, and renders. All streaming UIs are client components that consume SSE via `lib/sse/client.ts`; finalized content is loaded from the DB via `GET /api/conversations/[id]` on mount and reconstructed into the view's local state.
 
-- **MultiPaneLayout** — CSS grid `repeat(n, 1fr)` with horizontal scroll past 3 panes. Each pane owns its own fetch-stream reader.
+- **SingleChatView** — vertical message list, one model picker.
+- **FanoutView** — N panes in a horizontal scroll; each pane owns its own SSE reader and abort controller.
 - **LoopView** — vertical timeline; A left-aligned, B right-aligned with a "questioner" badge; round counter + abort button.
 - **CouncilView** — responsive grid (2 × 2 for 4 members). Score badge animates in on `scoring.complete`; hover reveals per-scorer breakdown. Failed scorers render `—`.
 - **SynthesisView** — CouncilView on top, sticky synth panel at the bottom.
+- **ImagineView** — N tiles, each pinned to an image checkpoint; per-tile rounds show prompt → progress bar → live preview thumbnail → final image. ModelSelect is filtered by `filterKind="image"`.
+
+History pages:
+
+- **`/chats/history`** — server component listing all non-imagine conversations, grouped by mode, newest first. Each row shows title (or first user prompt), last assistant snippet, message count, last-updated.
+- **`/imagine/history`** — server component listing imagine sessions, grouped by conversation, with a thumbnail grid per session. Backed by `listImagineGallery` which joins `conversations`/`messages` and filters on `jsonb_array_length(attachments) > 0`.
 
 ## Abort / cancellation
 
@@ -246,3 +332,6 @@ Every chat route handler creates an `AbortController` and ties `request.signal` 
 4. **AI SDK + Claude Agent SDK churn.** Pin exact versions for `ai`, `@anthropic-ai/claude-agent-sdk`, and `ollama-ai-provider-v2`. Own the SSE event schema rather than relying on either SDK's protocol events.
 5. **Claude subscription quota.** All Claude calls consume the user's Pro/Max quota; council/synthesis mode multiplies usage by `N * (N − 1) + N` calls per turn. The UI should surface quota-exhaustion errors clearly (the Agent SDK reports them as `error: 'rate_limit'` on `SDKAssistantMessage`).
 6. **Branching message model.** Cleaner schema, mode-aware rendering on the view layer.
+7. **ComfyUI queue is serial and `/interrupt` is global.** Fanned-out imagine prompts run one at a time; aborting one tile can cancel another that happens to be the currently-running prompt. Mitigation (not implemented yet): cross-check `/queue` before issuing `/interrupt`.
+8. **Checkpoint load is silent.** ComfyUI emits no WebSocket events while a 16 GB FLUX checkpoint loads from disk to MPS — only after `KSampler` starts. First-time generation can look like a hang. Surface "loading…" via `executing { node: <CheckpointLoaderSimple id> }` events if it becomes a UX issue.
+9. **Image storage in `public/`.** Generated PNGs live under `public/generated/` so Next can serve them statically, but they're outside the DB and the directory is gitignored. Deleting a conversation does not yet delete its files; orphaned images accumulate until manual cleanup.
