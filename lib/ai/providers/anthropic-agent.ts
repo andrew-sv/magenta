@@ -16,14 +16,16 @@ class AnthropicAgentProvider implements ChatProvider {
   readonly providerId = "anthropic" as const;
 
   async *stream(params: StreamParams): AsyncIterable<StreamChunk> {
-    const { prompt, abortController } = buildPrompt(params);
+    const { prompt, historySystem, abortController } = buildPrompt(params);
+
+    const systemPrompt = [params.system, historySystem].filter(Boolean).join("\n\n");
 
     const options: Options = {
       model: params.modelName,
       tools: [],
       includePartialMessages: true,
       abortController,
-      ...(params.system ? { systemPrompt: params.system } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
     };
 
     const iter = query({ prompt, options });
@@ -105,34 +107,53 @@ export const anthropicAgentProvider = new AnthropicAgentProvider();
 
 function buildPrompt(params: StreamParams): {
   prompt: string;
+  historySystem?: string;
   abortController: AbortController;
 } {
-  // Single-turn: just send the user content.
-  // Multi-turn: format prior turns as a transcript followed by the latest user turn.
-  let prompt: string;
-  if (params.messages.length === 0) {
-    prompt = "";
-  } else if (params.messages.length === 1 && params.messages[0].role === "user") {
-    prompt = params.messages[0].content;
-  } else {
-    const lines: string[] = [];
-    for (let i = 0; i < params.messages.length - 1; i++) {
-      const m = params.messages[i];
-      if (m.role === "system") continue;
-      lines.push(`${capitalize(m.role)}: ${m.content}`);
-    }
-    const last = params.messages[params.messages.length - 1];
-    lines.push("");
-    lines.push(last.role === "user" ? last.content : `${capitalize(last.role)}: ${last.content}`);
-    prompt = lines.join("\n");
-  }
-
+  // The Agent SDK takes a single user-turn prompt. For multi-turn chats we
+  // pass the latest user turn as the prompt and stash the prior transcript in
+  // the system prompt under XML-style tags. This avoids inline "User:" /
+  // "Assistant:" prefixes that some models echo back as part of the answer.
   const abortController = new AbortController();
-  // Bridge the upstream signal so caller-side cancellation flows through to the SDK.
   if (params.signal.aborted) abortController.abort();
   else params.signal.addEventListener("abort", () => abortController.abort(), { once: true });
 
-  return { prompt, abortController };
+  if (params.messages.length === 0) {
+    return { prompt: "", abortController };
+  }
+
+  // The current user turn is the last user-role message; anything after it is
+  // unexpected for this adapter, but we tolerate it by treating the very last
+  // message as the prompt regardless of role.
+  let promptIdx = -1;
+  for (let i = params.messages.length - 1; i >= 0; i--) {
+    if (params.messages[i].role === "user") {
+      promptIdx = i;
+      break;
+    }
+  }
+  if (promptIdx === -1) promptIdx = params.messages.length - 1;
+
+  const prompt = params.messages[promptIdx].content;
+
+  const priorTurns = params.messages
+    .slice(0, promptIdx)
+    .filter((m) => m.role !== "system");
+
+  if (priorTurns.length === 0) {
+    return { prompt, abortController };
+  }
+
+  const transcript = priorTurns
+    .map((m) => `<turn role="${m.role}">\n${m.content}\n</turn>`)
+    .join("\n");
+  const historySystem =
+    "Prior conversation history is provided below for context. The user's " +
+    "current message is in the prompt; respond to it directly, not by " +
+    "narrating or quoting the transcript.\n\n" +
+    `<conversation>\n${transcript}\n</conversation>`;
+
+  return { prompt, historySystem, abortController };
 }
 
 function extractAssistantText(msg: Extract<SDKMessage, { type: "assistant" }>): string {
@@ -170,10 +191,6 @@ function tryParseJson(raw: string): unknown {
     }
     return undefined;
   }
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function mapAgentError(err: string): Error {

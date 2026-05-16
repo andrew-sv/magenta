@@ -46,6 +46,11 @@ export function SingleChatView({ conversation }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
+  // Cancel any in-flight SSE when the view unmounts (route change, etc.).
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   async function submit(text: string) {
     if (!modelId) return;
     const userMsg: Message = {
@@ -59,6 +64,7 @@ export function SingleChatView({ conversation }: Props) {
       content: text,
       status: "complete",
       clientMessageId: null,
+      attachments: [],
       createdAt: new Date(),
     };
     setMessages((m) => [...m, userMsg]);
@@ -68,9 +74,12 @@ export function SingleChatView({ conversation }: Props) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // `acc` is the source of truth for the in-flight assistant content. The
+    // `streaming` React state lags behind by a render, so the catch/finally
+    // blocks must read from this local — not from the closure-captured state.
+    let acc = "";
+    let finalId: string | null = null;
     try {
-      let acc = "";
-      let finalId: string | null = null;
       for await (const event of postSse<SingleEvent>(
         "/api/chat/single",
         { conversationId: conversation.id, modelId, userContent: text },
@@ -98,6 +107,7 @@ export function SingleChatView({ conversation }: Props) {
         content: acc,
         status: "complete",
         clientMessageId: null,
+        attachments: [],
         createdAt: new Date(),
       };
       setMessages((m) => [...m, assistantMsg]);
@@ -114,9 +124,10 @@ export function SingleChatView({ conversation }: Props) {
             modelId,
             paneKey: null,
             round: null,
-            content: streaming + "\n\n[aborted]",
+            content: acc + "\n\n[aborted]",
             status: "aborted",
             clientMessageId: null,
+            attachments: [],
             createdAt: new Date(),
           },
         ]);
@@ -133,9 +144,10 @@ export function SingleChatView({ conversation }: Props) {
             modelId,
             paneKey: null,
             round: null,
-            content: `[error] ${message}`,
+            content: acc ? `${acc}\n\n[error] ${message}` : `[error] ${message}`,
             status: "error",
             clientMessageId: null,
+            attachments: [],
             createdAt: new Date(),
           },
         ]);
@@ -177,6 +189,7 @@ export function SingleChatView({ conversation }: Props) {
                 content: streaming,
                 status: "streaming",
                 clientMessageId: null,
+                attachments: [],
                 createdAt: new Date(),
               }}
             />

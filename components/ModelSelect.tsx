@@ -14,9 +14,17 @@ type Props = {
   label?: string;
   /** Hide models that aren't available. Defaults to false (shows them disabled). */
   hideUnavailable?: boolean;
+  /** Restrict the list to one kind. Omit to show all. */
+  filterKind?: "text" | "image";
 };
 
-export function ModelSelect({ value, onChange, label, hideUnavailable = false }: Props) {
+export function ModelSelect({
+  value,
+  onChange,
+  label,
+  hideUnavailable = false,
+  filterKind,
+}: Props) {
   const [models, setModels] = useState<ModelEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +46,8 @@ export function ModelSelect({ value, onChange, label, hideUnavailable = false }:
   if (error) return <span className="text-sm text-red-500">Failed to load models: {error}</span>;
   if (!models) return <span className="text-sm text-neutral-500">Loading models…</span>;
 
-  const visible = hideUnavailable ? models.filter((m) => m.available) : models;
+  let visible = filterKind ? models.filter((m) => m.kind === filterKind) : models;
+  if (hideUnavailable) visible = visible.filter((m) => m.available);
 
   return (
     <label className="inline-flex items-center gap-2 text-sm">

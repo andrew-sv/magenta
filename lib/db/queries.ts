@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   conversations,
@@ -7,6 +7,7 @@ import {
   scores,
   type Conversation,
   type Message,
+  type MessageAttachment,
   type NewConversation,
   type NewMessage,
   type NewRun,
@@ -83,7 +84,7 @@ export async function upsertUserMessage(data: NewMessage & {
 
 export async function updateMessage(
   id: string,
-  patch: Partial<Pick<Message, "content" | "status">>,
+  patch: Partial<Pick<Message, "content" | "status" | "attachments">>,
 ): Promise<void> {
   await db.update(messages).set(patch).where(eq(messages.id, id));
 }
@@ -133,4 +134,129 @@ export async function endRun(
     .update(runs)
     .set({ status, endedAt: new Date(), error: error ?? null })
     .where(eq(runs.id, id));
+}
+
+export type ChatHistoryEntry = {
+  conversationId: string;
+  mode: Conversation["mode"];
+  title: string;
+  firstUserPrompt: string;
+  lastAssistantSnippet: string;
+  messageCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export async function listChatHistory(limit = 200): Promise<ChatHistoryEntry[]> {
+  const convoRows = await db
+    .select()
+    .from(conversations)
+    .where(sql`${conversations.mode} <> 'imagine'`)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit);
+
+  if (convoRows.length === 0) return [];
+
+  const convoIds = convoRows.map((c) => c.id);
+  const msgRows = await db
+    .select({
+      id: messages.id,
+      conversationId: messages.conversationId,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(inArray(messages.conversationId, convoIds))
+    .orderBy(asc(messages.createdAt));
+
+  const grouped = new Map<
+    string,
+    { firstUser: string; lastAssistant: string; count: number }
+  >();
+  for (const m of msgRows) {
+    const g = grouped.get(m.conversationId) ?? {
+      firstUser: "",
+      lastAssistant: "",
+      count: 0,
+    };
+    g.count++;
+    if (m.role === "user" && !g.firstUser) g.firstUser = m.content;
+    if (
+      (m.role === "assistant" || m.role === "synthesizer") &&
+      m.content
+    )
+      g.lastAssistant = m.content;
+    grouped.set(m.conversationId, g);
+  }
+
+  return convoRows.map((c) => {
+    const g = grouped.get(c.id);
+    return {
+      conversationId: c.id,
+      mode: c.mode,
+      title: c.title,
+      firstUserPrompt: g?.firstUser ?? "",
+      lastAssistantSnippet: g?.lastAssistant ?? "",
+      messageCount: g?.count ?? 0,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    };
+  });
+}
+
+export type ImagineGalleryEntry = {
+  conversationId: string;
+  conversationTitle: string;
+  assistantMessageId: string;
+  modelId: string | null;
+  prompt: string;
+  attachments: MessageAttachment[];
+  createdAt: Date;
+};
+
+export async function listImagineGallery(limit = 200): Promise<ImagineGalleryEntry[]> {
+  const rows = await db
+    .select({
+      conversationId: messages.conversationId,
+      conversationTitle: conversations.title,
+      assistantMessageId: messages.id,
+      modelId: messages.modelId,
+      parentId: messages.parentId,
+      attachments: messages.attachments,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(
+      and(
+        eq(conversations.mode, "imagine"),
+        eq(messages.role, "assistant"),
+        isNotNull(messages.parentId),
+        sql`jsonb_array_length(${messages.attachments}) > 0`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(limit);
+
+  const parentIds = Array.from(
+    new Set(rows.map((r) => r.parentId).filter((id): id is string => id !== null)),
+  );
+  const parents = parentIds.length
+    ? await db
+        .select({ id: messages.id, content: messages.content })
+        .from(messages)
+        .where(inArray(messages.id, parentIds))
+    : [];
+  const promptById = new Map(parents.map((p) => [p.id, p.content]));
+
+  return rows.map((r) => ({
+    conversationId: r.conversationId,
+    conversationTitle: r.conversationTitle,
+    assistantMessageId: r.assistantMessageId,
+    modelId: r.modelId,
+    prompt: r.parentId ? promptById.get(r.parentId) ?? "" : "",
+    attachments: r.attachments,
+    createdAt: r.createdAt,
+  }));
 }

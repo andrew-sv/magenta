@@ -8,6 +8,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 export const conversationModeEnum = pgEnum("conversation_mode", [
@@ -16,7 +17,18 @@ export const conversationModeEnum = pgEnum("conversation_mode", [
   "loop",
   "council",
   "synthesis",
+  "imagine",
 ]);
+
+export type MessageAttachment = {
+  kind: "image";
+  path: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  modelId?: string;
+  prompt?: string;
+};
 
 export const messageRoleEnum = pgEnum("message_role", [
   "user",
@@ -56,7 +68,9 @@ export const messages = pgTable(
     conversationId: uuid("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    parentId: uuid("parent_id"),
+    parentId: uuid("parent_id").references((): AnyPgColumn => messages.id, {
+      onDelete: "cascade",
+    }),
     role: messageRoleEnum("role").notNull(),
     modelId: text("model_id"),
     paneKey: text("pane_key"),
@@ -64,6 +78,10 @@ export const messages = pgTable(
     content: text("content").notNull().default(""),
     status: messageStatusEnum("status").notNull().default("complete"),
     clientMessageId: text("client_message_id"),
+    attachments: jsonb("attachments")
+      .$type<MessageAttachment[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

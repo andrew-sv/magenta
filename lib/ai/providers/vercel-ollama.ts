@@ -43,6 +43,7 @@ class VercelOllamaProvider implements ChatProvider {
   }
 
   async generateObject<T>(params: GenerateObjectParams<T>): Promise<T | null> {
+    let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (params.signal.aborted) return null;
       try {
@@ -55,15 +56,15 @@ class VercelOllamaProvider implements ChatProvider {
         return object as T;
       } catch (err) {
         if (params.signal.aborted) return null;
-        if (attempt === 2) {
-          // Surface to caller only if there was no valid output across all retries.
-          if (env.NODE_ENV !== "production") {
-            console.warn(`[vercel-ollama] generateObject failed after retries:`, err);
-          }
-          return null;
-        }
+        lastError = err;
       }
     }
+    // All retries exhausted. Log so the failure isn't silent — the caller
+    // already handles `null` as "scorer produced invalid output".
+    console.warn(
+      `[vercel-ollama] generateObject(${params.modelName}) failed after 3 attempts:`,
+      lastError,
+    );
     return null;
   }
 }

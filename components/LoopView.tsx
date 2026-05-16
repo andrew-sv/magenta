@@ -72,6 +72,10 @@ export function LoopView({ conversation }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
 
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   async function submit(text: string) {
     if (!modelA || !modelB) return;
     const userTurn: Turn = {

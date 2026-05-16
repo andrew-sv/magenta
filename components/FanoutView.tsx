@@ -69,6 +69,15 @@ export function FanoutView({ conversation }: Props) {
     };
   }, [conversation.id]);
 
+  // Cancel any in-flight SSE streams when the view unmounts.
+  useEffect(() => {
+    const controllers = abortControllers.current;
+    return () => {
+      for (const c of controllers.values()) c.abort();
+      controllers.clear();
+    };
+  }, []);
+
   function setPane(key: string, patch: Partial<PaneState>) {
     setPanes((current) => current.map((p) => (p.key === key ? { ...p, ...patch } : p)));
   }
@@ -109,6 +118,7 @@ export function FanoutView({ conversation }: Props) {
       content: text,
       status: "complete",
       clientMessageId,
+      attachments: [],
       createdAt: new Date(),
     };
 
@@ -154,6 +164,7 @@ export function FanoutView({ conversation }: Props) {
                 content: acc,
                 status: "complete",
                 clientMessageId: null,
+                attachments: [],
                 createdAt: new Date(),
               };
               setPanes((current) =>
@@ -201,7 +212,8 @@ export function FanoutView({ conversation }: Props) {
         </div>
         <button
           onClick={addPane}
-          className="rounded border border-neutral-300 px-2 py-1 text-sm hover:border-magenta-400 dark:border-neutral-700"
+          disabled={anyBusy}
+          className="rounded border border-neutral-300 px-2 py-1 text-sm hover:border-magenta-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700"
         >
           + Add pane
         </button>
@@ -214,7 +226,7 @@ export function FanoutView({ conversation }: Props) {
             pane={pane}
             onModelChange={(id) => setPane(pane.key, { modelId: id })}
             onRemove={() => removePane(pane.key)}
-            canRemove={panes.length > 2}
+            canRemove={panes.length > 2 && !anyBusy}
           />
         ))}
       </main>
@@ -277,6 +289,7 @@ function Pane({
                 content: pane.streaming,
                 status: "streaming",
                 clientMessageId: null,
+                attachments: [],
                 createdAt: new Date(),
               }}
             />

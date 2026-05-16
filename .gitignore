@@ -20,3 +20,6 @@ drizzle/meta/_journal.tmp.json
 # TypeScript / Next
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# Imagine-mode output: kept out of git but lives under public/ so Next can serve them.
+public/generated/

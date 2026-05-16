@@ -5,7 +5,7 @@ import { Markdown } from "./Markdown";
 import { ModelSelect } from "./ModelSelect";
 import { PromptComposer } from "./PromptComposer";
 import { postSse } from "@/lib/sse/client";
-import type { CouncilEvent } from "@/lib/sse/events";
+import type { SynthesisEvent } from "@/lib/sse/events";
 import type { Conversation, Message, Score } from "@/lib/db/schema";
 
 type Props = {
@@ -35,8 +35,12 @@ type ScoreBreakdown = {
 const INITIAL_MEMBER_COUNT = 3;
 const MAX_MEMBER_COUNT = 4;
 
-export function CouncilView({ conversation }: Props) {
-  const cfg = (conversation.config as { memberModelIds?: string[] }) ?? {};
+export function SynthesisView({ conversation }: Props) {
+  const cfg = (conversation.config as {
+    memberModelIds?: string[];
+    synthesizerId?: string;
+  }) ?? {};
+
   const initialMembers: Member[] =
     cfg.memberModelIds && cfg.memberModelIds.length >= 2
       ? cfg.memberModelIds.map((id, i) => ({
@@ -55,10 +59,18 @@ export function CouncilView({ conversation }: Props) {
         }));
 
   const [members, setMembers] = useState<Member[]>(initialMembers);
+  const [synthesizerModelId, setSynthesizerModelId] = useState<string | null>(
+    cfg.synthesizerId ?? null,
+  );
   const [userPrompt, setUserPrompt] = useState<string | null>(null);
   const [averages, setAverages] = useState<Record<string, number | null>>({});
   const [breakdowns, setBreakdowns] = useState<Record<string, ScoreBreakdown[]>>({});
   const [scoring, setScoring] = useState<"idle" | "running" | "complete">("idle");
+  const [synth, setSynth] = useState<{
+    modelId: string | null;
+    content: string;
+    status: "idle" | "streaming" | "complete" | "error" | "aborted";
+  }>({ modelId: null, content: "", status: "idle" });
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -68,12 +80,15 @@ export function CouncilView({ conversation }: Props) {
       .then((r) => r.json())
       .then((data: ApiResponse) => {
         if (cancelled) return;
+
         const userMsg = data.messages.find((m) => m.role === "user");
         if (userMsg) setUserPrompt(userMsg.content);
 
         const assistantMsgs = data.messages
           .filter((m) => m.role === "assistant" && m.paneKey)
           .sort((a, b) => a.paneKey!.localeCompare(b.paneKey!));
+
+        const synthMsg = data.messages.find((m) => m.role === "synthesizer");
 
         if (assistantMsgs.length > 0) {
           setMembers(
@@ -85,7 +100,7 @@ export function CouncilView({ conversation }: Props) {
               status: (m.status ?? "complete") as Member["status"],
             })),
           );
-          // Reproject averages by paneKey from the scores table.
+
           const messageIdToKey = new Map<string, string>();
           for (const m of assistantMsgs) messageIdToKey.set(m.id, m.paneKey!);
 
@@ -96,7 +111,6 @@ export function CouncilView({ conversation }: Props) {
           }
           setAverages(byKey);
 
-          // Build per-target breakdown from the scores rows.
           const bd: Record<string, ScoreBreakdown[]> = {};
           for (const s of data.scores) {
             const targetKey = messageIdToKey.get(s.targetMessageId);
@@ -108,6 +122,14 @@ export function CouncilView({ conversation }: Props) {
           }
           setBreakdowns(bd);
           setScoring("complete");
+        }
+
+        if (synthMsg) {
+          setSynth({
+            modelId: synthMsg.modelId,
+            content: synthMsg.content,
+            status: (synthMsg.status ?? "complete") as typeof synth.status,
+          });
         }
       })
       .catch(() => {});
@@ -151,7 +173,8 @@ export function CouncilView({ conversation }: Props) {
     });
   }
 
-  const allPicked = members.every((m) => m.modelId !== null);
+  const allPicked =
+    members.every((m) => m.modelId !== null) && synthesizerModelId !== null;
   const uniqueIds = new Set(members.map((m) => m.modelId).filter(Boolean));
   const allDistinct = uniqueIds.size === members.length;
   const hasRun = members.some((m) => m.status !== "idle");
@@ -164,6 +187,7 @@ export function CouncilView({ conversation }: Props) {
     setAverages({});
     setBreakdowns({});
     setScoring("idle");
+    setSynth({ modelId: synthesizerModelId, content: "", status: "idle" });
     setBusy(true);
 
     setMembers((current) =>
@@ -179,9 +203,14 @@ export function CouncilView({ conversation }: Props) {
     abortRef.current = controller;
 
     try {
-      for await (const event of postSse<CouncilEvent>(
-        "/api/chat/council",
-        { conversationId: conversation.id, memberModelIds: modelIds, userContent: text },
+      for await (const event of postSse<SynthesisEvent>(
+        "/api/chat/synthesis",
+        {
+          conversationId: conversation.id,
+          memberModelIds: modelIds,
+          synthesizerModelId,
+          userContent: text,
+        },
         controller.signal,
       )) {
         if (event.type === "member.start") {
@@ -215,15 +244,24 @@ export function CouncilView({ conversation }: Props) {
         } else if (event.type === "scoring.complete") {
           setAverages(event.averages);
           setScoring("complete");
+        } else if (event.type === "synthesis.start") {
+          setSynth({ modelId: event.modelId, content: "", status: "streaming" });
+        } else if (event.type === "synthesis.token") {
+          setSynth((current) => ({ ...current, content: current.content + event.delta }));
+        } else if (event.type === "synthesis.complete") {
+          setSynth((current) => ({ ...current, status: "complete" }));
         } else if (event.type === "error") {
-          // Provider-level errors are scoped to a member; we already have status updates
-          // via member.complete with status=error. Show inline in card.
           setMembers((current) =>
             current.map((m) =>
               m.status === "streaming"
                 ? { ...m, status: "error", content: m.content + `\n\n[error] ${event.message}` }
                 : m,
             ),
+          );
+          setSynth((current) =>
+            current.status === "streaming"
+              ? { ...current, status: "error", content: current.content + `\n\n[error] ${event.message}` }
+              : current,
           );
         }
       }
@@ -251,21 +289,32 @@ export function CouncilView({ conversation }: Props) {
           <a href="/" className="text-sm text-neutral-500 hover:text-magenta-600">
             ← Modes
           </a>
-          <h1 className="font-semibold">Council</h1>
+          <h1 className="font-semibold">Synthesis</h1>
           <span className="text-xs text-neutral-500">
             {members.length} members ·{" "}
-            {scoring === "complete"
-              ? "scored"
-              : scoring === "running"
-                ? "scoring…"
-                : hasRun
-                  ? "answering…"
-                  : "idle"}
+            {synth.status === "complete"
+              ? "synthesized"
+              : synth.status === "streaming"
+                ? "synthesizing…"
+                : scoring === "complete"
+                  ? "scored"
+                  : scoring === "running"
+                    ? "scoring…"
+                    : hasRun
+                      ? "answering…"
+                      : "idle"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           {!allDistinct && (
             <span className="text-xs text-amber-600">Members must be distinct</span>
+          )}
+          {!hasRun && (
+            <ModelSelect
+              value={synthesizerModelId}
+              onChange={setSynthesizerModelId}
+              label="Synthesizer"
+            />
           )}
           {members.length < MAX_MEMBER_COUNT && !hasRun && (
             <button
@@ -288,17 +337,22 @@ export function CouncilView({ conversation }: Props) {
       )}
 
       <main className="flex-1 overflow-y-auto px-4 py-4">
-        <CouncilGrid
-          members={members}
-          averages={averages}
-          breakdowns={breakdowns}
-          scoringRunning={scoring === "running"}
-          scoringComplete={scoring === "complete"}
-          onChangeModel={(key, id) => setMember(key, { modelId: id })}
-          onRemove={removeMember}
-          canEdit={!hasRun}
-          canRemove={members.length > 2}
-        />
+        <div className="mx-auto flex max-w-5xl flex-col gap-6">
+          <CouncilGrid
+            members={members}
+            averages={averages}
+            breakdowns={breakdowns}
+            scoringRunning={scoring === "running"}
+            scoringComplete={scoring === "complete"}
+            onChangeModel={(key, id) => setMember(key, { modelId: id })}
+            onRemove={removeMember}
+            canEdit={!hasRun}
+            canRemove={members.length > 2}
+          />
+          {(synth.status !== "idle" || hasRun) && (
+            <SynthPanel synth={synth} synthesizerId={synthesizerModelId} />
+          )}
+        </div>
       </main>
 
       <PromptComposer
@@ -308,10 +362,14 @@ export function CouncilView({ conversation }: Props) {
         disabled={!canSubmit && !busy}
         placeholder={
           hasRun
-            ? "Council answered. Open a new conversation to ask again."
+            ? "Synthesis complete. Open a new conversation to ask again."
             : canSubmit
-              ? "Ask the council…"
-              : "Pick distinct models for every seat"
+              ? "Ask the council, get one synthesized answer…"
+              : !allDistinct
+                ? "Members must be distinct"
+                : !synthesizerModelId
+                  ? "Pick a synthesizer model"
+                  : "Pick a model for every seat"
         }
       />
     </div>
@@ -339,9 +397,8 @@ function CouncilGrid({
   canEdit: boolean;
   canRemove: boolean;
 }) {
-  const cols = members.length === 2 ? "md:grid-cols-2" : "md:grid-cols-2 lg:grid-cols-2";
   return (
-    <div className={`mx-auto grid max-w-5xl gap-4 grid-cols-1 ${cols}`}>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {members.map((m) => (
         <MemberCard
           key={m.key}
@@ -379,16 +436,13 @@ function MemberCard({
   canEdit: boolean;
 }) {
   const showBadge = scoringComplete || (scoringRunning && breakdown.length > 0);
-
   const breakdownText = useMemo(() => {
     if (breakdown.length === 0) return null;
-    return breakdown
-      .map((b) => `${b.scorerKey}: ${b.score ?? "—"}`)
-      .join(" · ");
+    return breakdown.map((b) => `${b.scorerKey}: ${b.score ?? "—"}`).join(" · ");
   }, [breakdown]);
 
   return (
-    <section className="flex min-h-[14rem] flex-col rounded-lg border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+    <section className="flex min-h-[12rem] flex-col rounded-lg border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
       <header className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <div className="flex items-center gap-2">
           {canEdit ? (
@@ -425,6 +479,45 @@ function MemberCard({
           <span className="text-neutral-400">…</span>
         ) : (
           <span className="text-neutral-400">Waiting for prompt…</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SynthPanel({
+  synth,
+  synthesizerId,
+}: {
+  synth: { modelId: string | null; content: string; status: "idle" | "streaming" | "complete" | "error" | "aborted" };
+  synthesizerId: string | null;
+}) {
+  const idle = synth.status === "idle";
+  return (
+    <section className="rounded-lg border-2 border-magenta-300 bg-magenta-50/50 shadow-sm dark:border-magenta-700 dark:bg-magenta-950/30">
+      <header className="flex items-center justify-between gap-2 border-b border-magenta-200 px-4 py-2 text-sm dark:border-magenta-800">
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-magenta-600 px-1.5 py-0.5 text-[11px] font-medium text-white">
+            SYNTHESIS
+          </span>
+          <span className="text-neutral-700 dark:text-neutral-300">
+            {synth.modelId ?? synthesizerId ?? "—"}
+          </span>
+        </div>
+        {synth.status === "streaming" && (
+          <span className="text-[11px] text-magenta-600">streaming…</span>
+        )}
+        {synth.status === "error" && (
+          <span className="text-[11px] text-red-500">error</span>
+        )}
+      </header>
+      <div className="px-4 py-3 text-sm">
+        {synth.content ? (
+          <Markdown>{synth.content}</Markdown>
+        ) : (
+          <span className="text-neutral-400">
+            {idle ? "Waiting for council to finish…" : "…"}
+          </span>
         )}
       </div>
     </section>

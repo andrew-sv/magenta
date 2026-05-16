@@ -31,5 +31,45 @@ export interface ChatProvider {
   generateObject<T>(params: GenerateObjectParams<T>): Promise<T | null>;
 }
 
-export const PROVIDER_IDS = ["anthropic", "ollama", "openai", "google", "xai"] as const;
+export const PROVIDER_IDS = [
+  "anthropic",
+  "ollama",
+  "openai",
+  "google",
+  "xai",
+  "comfyui",
+] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
+
+// ---------- Image generation ----------
+
+export type ImageGenParams = {
+  modelName: string;
+  workflow: string;
+  prompt: string;
+  negativePrompt?: string;
+  width: number;
+  height: number;
+  steps: number;
+  cfg?: number;
+  seed?: number;
+  signal: AbortSignal;
+};
+
+export type ImageEvent =
+  | { type: "queued"; position: number }
+  | { type: "progress"; current: number; total: number }
+  | { type: "preview"; mime: string; dataBase64: string }
+  | {
+      type: "image";
+      mime: string;
+      dataBase64: string;
+      width?: number;
+      height?: number;
+      seed?: number;
+    };
+
+export interface ImageProvider {
+  readonly providerId: ProviderId;
+  generate(params: ImageGenParams): AsyncIterable<ImageEvent>;
+}

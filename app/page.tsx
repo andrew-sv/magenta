@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ModePicker } from "@/components/ModePicker";
 
 export default function Home() {
@@ -8,6 +9,14 @@ export default function Home() {
         <p className="text-neutral-600 dark:text-neutral-400">
           Local multi-agent chat. Pick a mode to start a conversation.
         </p>
+        <nav className="mt-2 flex gap-4 text-sm">
+          <Link href="/chats/history" className="text-magenta-600 hover:underline">
+            Chat history
+          </Link>
+          <Link href="/imagine/history" className="text-magenta-600 hover:underline">
+            Imagine history
+          </Link>
+        </nav>
       </header>
       <ModePicker />
     </main>

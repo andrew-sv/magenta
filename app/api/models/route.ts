@@ -34,27 +34,75 @@ async function getInstalledOllamaModels(): Promise<Set<string> | null> {
   }
 }
 
+async function getInstalledComfyCheckpoints(): Promise<Set<string> | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(
+      `${env.COMFYUI_BASE_URL}/object_info/CheckpointLoaderSimple`,
+      { signal: controller.signal, cache: "no-store" },
+    );
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      CheckpointLoaderSimple?: {
+        input?: { required?: { ckpt_name?: [string[]] } };
+      };
+    };
+    const list =
+      data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] ?? [];
+    return new Set(list);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
-  const installed = await getInstalledOllamaModels();
+  const [installedOllama, installedComfy] = await Promise.all([
+    getInstalledOllamaModels(),
+    getInstalledComfyCheckpoints(),
+  ]);
 
   const entries: ModelEntry[] = MODEL_CATALOG.map((m) => {
     if (m.providerId === "ollama") {
-      if (installed === null) {
+      if (installedOllama === null) {
         return {
           ...m,
           available: false,
           unavailableReason: "Ollama is not reachable at OLLAMA_BASE_URL.",
         };
       }
-      const ok = installed.has(m.modelName) || installed.has(`${m.modelName}:latest`);
+      const ok =
+        installedOllama.has(m.modelName) ||
+        installedOllama.has(`${m.modelName}:latest`);
       return ok
         ? { ...m, available: true }
-        : { ...m, available: false, unavailableReason: `Run \`ollama pull ${m.modelName}\`` };
+        : {
+            ...m,
+            available: false,
+            unavailableReason: `Run \`ollama pull ${m.modelName}\``,
+          };
     }
     if (m.providerId === "anthropic") {
       // We can't cheaply probe Claude auth without making a billed call.
       // Mark available; surface auth errors on first use.
       return { ...m, available: true };
+    }
+    if (m.providerId === "comfyui") {
+      if (installedComfy === null) {
+        return {
+          ...m,
+          available: false,
+          unavailableReason: "ComfyUI is not reachable at COMFYUI_BASE_URL.",
+        };
+      }
+      return installedComfy.has(m.modelName)
+        ? { ...m, available: true }
+        : {
+            ...m,
+            available: false,
+            unavailableReason: `Drop ${m.modelName} into ComfyUI/models/checkpoints/`,
+          };
     }
     return { ...m, available: false, unavailableReason: "Provider not wired up yet." };
   });

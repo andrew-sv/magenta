@@ -3,7 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type ConversationMode = "single" | "fanout" | "loop" | "council" | "synthesis";
+type ConversationMode =
+  | "single"
+  | "fanout"
+  | "loop"
+  | "council"
+  | "synthesis"
+  | "imagine";
 
 type Mode = {
   id: ConversationMode;
@@ -41,7 +47,13 @@ const MODES: Mode[] = [
     id: "synthesis",
     title: "Synthesis",
     description: "Council, then a synthesizer model combines everything into one answer.",
-    ready: false,
+    ready: true,
+  },
+  {
+    id: "imagine",
+    title: "Imagine",
+    description: "Two or more image models, same prompt, side-by-side tiles. Powered by ComfyUI.",
+    ready: true,
   },
 ];
 

@@ -109,9 +109,47 @@ export type SynthesisEvent =
   | SynthesisTokenEvent
   | SynthesisCompleteEvent;
 
+// Case 6 — Imagine (per-call stream; one tile per HTTP call, fanout-shaped)
+export type ImagineTileMetaEvent = {
+  type: "tile.meta";
+  tileKey: string;
+  modelId: string;
+  userMessageId: string;
+  assistantMessageId: string;
+};
+export type ImagineQueuedEvent = { type: "imagine.queued"; position: number };
+export type ImagineProgressEvent = {
+  type: "imagine.progress";
+  current: number;
+  total: number;
+};
+export type ImaginePreviewEvent = {
+  type: "imagine.preview";
+  mime: string;
+  dataBase64: string;
+};
+export type ImagineImageEvent = {
+  type: "imagine.image";
+  path: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  seed?: number;
+};
+
+export type ImagineEvent =
+  | ImagineTileMetaEvent
+  | ImagineQueuedEvent
+  | ImagineProgressEvent
+  | ImaginePreviewEvent
+  | ImagineImageEvent
+  | ErrorEvent
+  | DoneEvent;
+
 export type AnyChatEvent =
   | SingleEvent
   | FanoutEvent
   | LoopEvent
   | CouncilEvent
-  | SynthesisEvent;
+  | SynthesisEvent
+  | ImagineEvent;

@@ -50,54 +50,13 @@ export async function runLoop(
   // input to B — see callers' `messagesForB`.
   const transcript: ChatMessage[] = [{ role: "user", content: params.userContent }];
 
-  // Round 0: A answers the user's seed prompt.
-  const okSeed = await runTurn({
-    label: "A",
-    round: 0,
-    modelId: params.modelAId,
-    descriptorName: a.descriptor.modelName,
-    provider: a.provider,
-    messages: clip(transcript, contextWindow),
-    conversationId: params.conversationId,
-    emit,
-    signal,
-    transcript,
-    pushAs: "assistant",
-  });
-  if (!okSeed) {
-    await endRun(run.id, signal.aborted ? "aborted" : "complete");
-    if (signal.aborted) emit({ type: "aborted" });
-    return;
-  }
-
   let completedRounds = 0;
-
-  for (let round = 1; round <= maxRounds; round++) {
-    if (signal.aborted) break;
-
-    // B asks a follow-up. From B's perspective, A's prior answers look like prompts.
-    const messagesForB = flipForB(transcript);
-    const okB = await runTurn({
-      label: "B",
-      round,
-      modelId: params.modelBId,
-      descriptorName: b.descriptor.modelName,
-      provider: b.provider,
-      messages: clip(messagesForB, contextWindow),
-      system: B_QUESTION_SYSTEM,
-      conversationId: params.conversationId,
-      emit,
-      signal,
-      transcript,
-      // B's question becomes the next user turn from A's perspective.
-      pushAs: "user",
-    });
-    if (!okB) break;
-
-    // A answers B's question.
-    const okA = await runTurn({
+  try {
+    // Round 0: A answers the user's seed prompt. `runTurn` throws on provider
+    // errors; a `false` return only means the upstream signal aborted mid-stream.
+    const okSeed = await runTurn({
       label: "A",
-      round,
+      round: 0,
       modelId: params.modelAId,
       descriptorName: a.descriptor.modelName,
       provider: a.provider,
@@ -108,9 +67,55 @@ export async function runLoop(
       transcript,
       pushAs: "assistant",
     });
-    if (!okA) break;
+    if (!okSeed) {
+      await endRun(run.id, "aborted");
+      emit({ type: "aborted" });
+      return;
+    }
 
-    completedRounds = round;
+    for (let round = 1; round <= maxRounds; round++) {
+      if (signal.aborted) break;
+
+      // B asks a follow-up. From B's perspective, A's prior answers look like prompts.
+      const messagesForB = flipForB(transcript);
+      const okB = await runTurn({
+        label: "B",
+        round,
+        modelId: params.modelBId,
+        descriptorName: b.descriptor.modelName,
+        provider: b.provider,
+        messages: clip(messagesForB, contextWindow),
+        system: B_QUESTION_SYSTEM,
+        conversationId: params.conversationId,
+        emit,
+        signal,
+        transcript,
+        // B's question becomes the next user turn from A's perspective.
+        pushAs: "user",
+      });
+      if (!okB) break;
+
+      // A answers B's question.
+      const okA = await runTurn({
+        label: "A",
+        round,
+        modelId: params.modelAId,
+        descriptorName: a.descriptor.modelName,
+        provider: a.provider,
+        messages: clip(transcript, contextWindow),
+        conversationId: params.conversationId,
+        emit,
+        signal,
+        transcript,
+        pushAs: "assistant",
+      });
+      if (!okA) break;
+
+      completedRounds = round;
+    }
+  } catch (err) {
+    await endRun(run.id, "error", err instanceof Error ? err.message : String(err));
+    throw err;
   }
 
   if (signal.aborted) {

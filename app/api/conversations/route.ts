@@ -5,7 +5,7 @@ import { createConversation, listConversations } from "@/lib/db/queries";
 export const dynamic = "force-dynamic";
 
 const CreateBody = z.object({
-  mode: z.enum(["single", "fanout", "loop", "council", "synthesis"]),
+  mode: z.enum(["single", "fanout", "loop", "council", "synthesis", "imagine"]),
   title: z.string().max(200).optional(),
   config: z.record(z.string(), z.unknown()).optional(),
 });

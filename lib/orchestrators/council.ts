@@ -21,6 +21,12 @@ export type CouncilParams = {
   conversationId: string;
   memberModelIds: string[];
   userContent: string;
+  /**
+   * When the council is invoked as a building block of another orchestrator
+   * (e.g. synthesis), the caller owns the `runs` row and passes its id here.
+   * In that case we don't open or close our own run.
+   */
+  existingRunId?: string;
 };
 
 export type CouncilMemberResult = {
@@ -61,7 +67,10 @@ export async function runCouncil(
     throw new Error("Council members must be distinct.");
   }
 
-  const run = await startRun({ conversationId: params.conversationId, mode: "council" });
+  const ownsRun = !params.existingRunId;
+  const runId =
+    params.existingRunId ??
+    (await startRun({ conversationId: params.conversationId, mode: "council" })).id;
 
   // Persist user prompt.
   const userMsg = await insertMessage({
@@ -114,7 +123,7 @@ export async function runCouncil(
   );
 
   if (signal.aborted) {
-    await endRun(run.id, "aborted");
+    if (ownsRun) await endRun(runId, "aborted");
     return { results: memberResults, averages: {} };
   }
 
@@ -152,7 +161,7 @@ export async function runCouncil(
 
   emit({ type: "scoring.complete", averages: byKey });
 
-  await endRun(run.id, signal.aborted ? "aborted" : "complete");
+  if (ownsRun) await endRun(runId, signal.aborted ? "aborted" : "complete");
   return { results: memberResults, averages: byKey };
 }
 
