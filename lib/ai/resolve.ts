@@ -6,6 +6,7 @@ import {
 } from "./catalog";
 import { anthropicAgentProvider } from "./providers/anthropic-agent";
 import { comfyUIProvider } from "./providers/comfyui";
+import { googleProvider } from "./providers/google";
 import { vercelOllamaProvider } from "./providers/vercel-ollama";
 import type { ChatProvider, ImageProvider } from "./types";
 
@@ -33,6 +34,8 @@ export function resolveModel(modelId: string): ResolvedTextModel {
       return { descriptor, provider: anthropicAgentProvider };
     case "ollama":
       return { descriptor, provider: vercelOllamaProvider };
+    case "google":
+      return { descriptor, provider: googleProvider };
     default:
       throw new Error(
         `Text provider "${descriptor.providerId}" is not wired up yet (model ${modelId}).`,

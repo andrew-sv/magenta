@@ -88,6 +88,15 @@ export async function GET() {
       // Mark available; surface auth errors on first use.
       return { ...m, available: true };
     }
+    if (m.providerId === "google") {
+      return env.GOOGLE_GENERATIVE_AI_API_KEY
+        ? { ...m, available: true }
+        : {
+            ...m,
+            available: false,
+            unavailableReason: "Set GOOGLE_GENERATIVE_AI_API_KEY in .env",
+          };
+    }
     if (m.providerId === "comfyui") {
       if (installedComfy === null) {
         return {

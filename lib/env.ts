@@ -5,6 +5,7 @@ const Schema = z.object({
   OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
   OLLAMA_MODE: z.enum(["native", "openai"]).default("native"),
   COMFYUI_BASE_URL: z.string().url().default("http://127.0.0.1:8000"),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
   DEFAULT_LOOP_ROUNDS: z.coerce.number().int().min(1).max(20).default(3),
   MAGENTA_LOCAL_ONLY: z
     .string()

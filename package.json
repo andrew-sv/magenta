@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/google": "2.0.73",
     "@anthropic-ai/claude-agent-sdk": "0.2.141",
     "ai": "5.0.188",
     "drizzle-orm": "^0.38.4",
