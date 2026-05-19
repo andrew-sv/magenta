@@ -28,7 +28,26 @@ export type ImageModelDescriptor = BaseModelDescriptor & {
   };
 };
 
-export type ModelDescriptor = TextModelDescriptor | ImageModelDescriptor;
+export type AnimationModelDescriptor = BaseModelDescriptor & {
+  kind: "animation";
+  /** Name of the workflow template under lib/ai/workflows/. */
+  workflow: string;
+  /** AnimateDiff motion module file under ComfyUI/models/animatediff_models/. */
+  motionModule: string;
+  defaults: {
+    width: number;
+    height: number;
+    steps: number;
+    cfg?: number;
+    frames: number;
+    fps: number;
+  };
+};
+
+export type ModelDescriptor =
+  | TextModelDescriptor
+  | ImageModelDescriptor
+  | AnimationModelDescriptor;
 
 /**
  * The static catalog of models the UI can show. Availability of individual
@@ -175,6 +194,16 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     kind: "image",
     workflow: "flux-schnell",
     defaults: { width: 1024, height: 1024, steps: 4, cfg: 1 },
+  },
+  {
+    id: "comfyui:animatediff-sd15",
+    label: "AnimateDiff SD1.5 (ComfyUI)",
+    providerId: "comfyui",
+    modelName: "dreamshaper_8.safetensors",
+    kind: "animation",
+    workflow: "animatediff-sd15",
+    motionModule: "mm_sd_v15_v2.ckpt",
+    defaults: { width: 512, height: 512, steps: 20, cfg: 7.5, frames: 16, fps: 8 },
   },
 ] as const;
 

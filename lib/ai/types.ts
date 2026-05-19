@@ -73,3 +73,45 @@ export interface ImageProvider {
   readonly providerId: ProviderId;
   generate(params: ImageGenParams): AsyncIterable<ImageEvent>;
 }
+
+// ---------- Animation generation ----------
+
+export type AnimationGenParams = {
+  modelName: string;
+  workflow: string;
+  prompt: string;
+  negativePrompt?: string;
+  width: number;
+  height: number;
+  steps: number;
+  cfg?: number;
+  seed?: number;
+  /** Total frames in the clip. */
+  frames: number;
+  /** Playback frame rate. */
+  fps: number;
+  /** AnimateDiff motion module file (e.g. mm_sd_v15_v2.ckpt). */
+  motionModule: string;
+  /** Motion strength multiplier (typically 0.0 - 2.0). */
+  motionScale: number;
+  signal: AbortSignal;
+};
+
+export type AnimationEvent =
+  | { type: "queued"; position: number }
+  | { type: "progress"; current: number; total: number }
+  | {
+      type: "gif";
+      mime: "image/gif";
+      dataBase64: string;
+      width?: number;
+      height?: number;
+      frames?: number;
+      fps?: number;
+      seed?: number;
+    };
+
+export interface AnimationProvider {
+  readonly providerId: ProviderId;
+  generate(params: AnimationGenParams): AsyncIterable<AnimationEvent>;
+}

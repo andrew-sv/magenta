@@ -18,6 +18,7 @@ export const conversationModeEnum = pgEnum("conversation_mode", [
   "council",
   "synthesis",
   "imagine",
+  "animate",
 ]);
 
 export type MessageAttachment = {

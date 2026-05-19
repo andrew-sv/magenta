@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DeleteConversationButton } from "@/components/DeleteConversationButton";
 import { listChatHistory, type ChatHistoryEntry } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ const MODE_LABEL: Record<ChatHistoryEntry["mode"], string> = {
   council: "Council",
   synthesis: "Synthesis",
   imagine: "Imagine",
+  animate: "Animate",
 };
 
 const MODE_ORDER: ChatHistoryEntry["mode"][] = [
@@ -72,10 +74,13 @@ export default async function ChatsHistoryPage() {
                 </h2>
                 <ul className="flex flex-col gap-2">
                   {list.map((c) => (
-                    <li key={c.conversationId}>
+                    <li
+                      key={c.conversationId}
+                      className="group flex items-stretch gap-1 rounded-lg border border-neutral-200 bg-white shadow-sm transition hover:border-magenta-400 dark:border-neutral-800 dark:bg-neutral-900"
+                    >
                       <Link
                         href={`/chat/${c.conversationId}`}
-                        className="flex flex-col gap-1 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm transition hover:border-magenta-400 dark:border-neutral-800 dark:bg-neutral-900"
+                        className="flex flex-1 flex-col gap-1 p-3"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-sm font-medium">
@@ -94,6 +99,12 @@ export default async function ChatsHistoryPage() {
                           {c.messageCount} message{c.messageCount === 1 ? "" : "s"}
                         </span>
                       </Link>
+                      <div className="flex items-start p-2">
+                        <DeleteConversationButton
+                          conversationId={c.conversationId}
+                          label={c.title || truncate(c.firstUserPrompt, 60) || "Untitled"}
+                        />
+                      </div>
                     </li>
                   ))}
                 </ul>

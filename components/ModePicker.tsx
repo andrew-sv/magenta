@@ -9,7 +9,8 @@ type ConversationMode =
   | "loop"
   | "council"
   | "synthesis"
-  | "imagine";
+  | "imagine"
+  | "animate";
 
 type Mode = {
   id: ConversationMode;
@@ -53,6 +54,12 @@ const MODES: Mode[] = [
     id: "imagine",
     title: "Imagine",
     description: "Two or more image models, same prompt, side-by-side tiles. Powered by ComfyUI.",
+    ready: true,
+  },
+  {
+    id: "animate",
+    title: "Animate",
+    description: "AnimateDiff GIFs, same prompt at low and high motion. Powered by ComfyUI.",
     ready: true,
   },
 ];

@@ -39,6 +39,19 @@ export async function updateConversationTitle(id: string, title: string): Promis
     .where(eq(conversations.id, id));
 }
 
+/**
+ * Deletes a conversation and (via `ON DELETE CASCADE`) its messages, scores,
+ * and runs. Returns the deleted row so callers can decide whether mode-specific
+ * cleanup is needed (e.g. removing on-disk generated images for `imagine`).
+ */
+export async function deleteConversation(id: string): Promise<Conversation | undefined> {
+  const [row] = await db
+    .delete(conversations)
+    .where(eq(conversations.id, id))
+    .returning();
+  return row;
+}
+
 export async function listMessages(conversationId: string): Promise<Message[]> {
   return db
     .select()
@@ -151,7 +164,7 @@ export async function listChatHistory(limit = 200): Promise<ChatHistoryEntry[]> 
   const convoRows = await db
     .select()
     .from(conversations)
-    .where(sql`${conversations.mode} <> 'imagine'`)
+    .where(sql`${conversations.mode} NOT IN ('imagine', 'animate')`)
     .orderBy(desc(conversations.updatedAt))
     .limit(limit);
 
@@ -216,6 +229,19 @@ export type ImagineGalleryEntry = {
 };
 
 export async function listImagineGallery(limit = 200): Promise<ImagineGalleryEntry[]> {
+  return listGalleryByMode("imagine", limit);
+}
+
+export type AnimateGalleryEntry = ImagineGalleryEntry;
+
+export async function listAnimateGallery(limit = 200): Promise<AnimateGalleryEntry[]> {
+  return listGalleryByMode("animate", limit);
+}
+
+async function listGalleryByMode(
+  mode: "imagine" | "animate",
+  limit: number,
+): Promise<ImagineGalleryEntry[]> {
   const rows = await db
     .select({
       conversationId: messages.conversationId,
@@ -230,7 +256,7 @@ export async function listImagineGallery(limit = 200): Promise<ImagineGalleryEnt
     .innerJoin(conversations, eq(conversations.id, messages.conversationId))
     .where(
       and(
-        eq(conversations.mode, "imagine"),
+        eq(conversations.mode, mode),
         eq(messages.role, "assistant"),
         isNotNull(messages.parentId),
         sql`jsonb_array_length(${messages.attachments}) > 0`,

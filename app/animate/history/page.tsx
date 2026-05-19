@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { findModel } from "@/lib/ai/catalog";
 import { DeleteConversationButton } from "@/components/DeleteConversationButton";
-import { listImagineGallery, type ImagineGalleryEntry } from "@/lib/db/queries";
+import { listAnimateGallery, type AnimateGalleryEntry } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +9,10 @@ type Group = {
   conversationId: string;
   conversationTitle: string;
   createdAt: Date;
-  entries: ImagineGalleryEntry[];
+  entries: AnimateGalleryEntry[];
 };
 
-function groupByConversation(rows: ImagineGalleryEntry[]): Group[] {
+function groupByConversation(rows: AnimateGalleryEntry[]): Group[] {
   const groups = new Map<string, Group>();
   for (const r of rows) {
     const g = groups.get(r.conversationId);
@@ -40,17 +40,17 @@ function modelLabel(modelId: string | null): string {
   return findModel(modelId)?.label ?? modelId;
 }
 
-export default async function ImagineHistoryPage() {
-  const rows = await listImagineGallery(500);
+export default async function AnimateHistoryPage() {
+  const rows = await listAnimateGallery(500);
   const groups = groupByConversation(rows);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-10">
       <header className="flex items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Imagine history</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Animate history</h1>
           <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Every generated image from past Imagine sessions, grouped by conversation.
+            Every generated GIF from past Animate sessions, grouped by conversation.
           </p>
         </div>
         <Link
@@ -63,7 +63,7 @@ export default async function ImagineHistoryPage() {
 
       {groups.length === 0 ? (
         <p className="rounded-lg border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No imagine sessions yet. Start one from the home page.
+          No animate sessions yet. Start one from the home page.
         </p>
       ) : (
         <div className="flex flex-col gap-6">
@@ -94,8 +94,8 @@ export default async function ImagineHistoryPage() {
               </div>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {g.entries.map((e) => {
-                  const img = e.attachments.find((a) => a.kind === "image");
-                  if (!img) return null;
+                  const gif = e.attachments.find((a) => a.kind === "image");
+                  if (!gif) return null;
                   return (
                     <Link
                       key={e.assistantMessageId}
@@ -105,7 +105,7 @@ export default async function ImagineHistoryPage() {
                       <div className="relative aspect-square overflow-hidden rounded-md bg-neutral-100 dark:bg-neutral-950">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={img.path}
+                          src={gif.path}
                           alt={e.prompt}
                           className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
                         />

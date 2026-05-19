@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { AnimateView } from "@/components/AnimateView";
 import { CouncilView } from "@/components/CouncilView";
 import { FanoutView } from "@/components/FanoutView";
 import { ImagineView } from "@/components/ImagineView";
@@ -31,5 +32,7 @@ export default async function ChatPage({
       return <SynthesisView conversation={conversation} />;
     case "imagine":
       return <ImagineView conversation={conversation} />;
+    case "animate":
+      return <AnimateView conversation={conversation} />;
   }
 }

@@ -16,6 +16,9 @@ export default function Home() {
           <Link href="/imagine/history" className="text-magenta-600 hover:underline">
             Imagine history
           </Link>
+          <Link href="/animate/history" className="text-magenta-600 hover:underline">
+            Animate history
+          </Link>
         </nav>
       </header>
       <ModePicker />

@@ -1,14 +1,15 @@
 import {
   getModelOrThrow,
+  type AnimationModelDescriptor,
   type ImageModelDescriptor,
   type ModelDescriptor,
   type TextModelDescriptor,
 } from "./catalog";
 import { anthropicAgentProvider } from "./providers/anthropic-agent";
-import { comfyUIProvider } from "./providers/comfyui";
+import { comfyUIAnimationProvider, comfyUIProvider } from "./providers/comfyui";
 import { googleProvider } from "./providers/google";
 import { vercelOllamaProvider } from "./providers/vercel-ollama";
-import type { ChatProvider, ImageProvider } from "./types";
+import type { AnimationProvider, ChatProvider, ImageProvider } from "./types";
 
 export type ResolvedTextModel = {
   descriptor: TextModelDescriptor;
@@ -18,6 +19,11 @@ export type ResolvedTextModel = {
 export type ResolvedImageModel = {
   descriptor: ImageModelDescriptor;
   provider: ImageProvider;
+};
+
+export type ResolvedAnimationModel = {
+  descriptor: AnimationModelDescriptor;
+  provider: AnimationProvider;
 };
 
 export type ResolvedModel = ResolvedTextModel;
@@ -56,6 +62,23 @@ export function resolveImageModel(modelId: string): ResolvedImageModel {
     default:
       throw new Error(
         `Image provider "${descriptor.providerId}" is not wired up yet (model ${modelId}).`,
+      );
+  }
+}
+
+export function resolveAnimationModel(modelId: string): ResolvedAnimationModel {
+  const descriptor: ModelDescriptor = getModelOrThrow(modelId);
+  if (descriptor.kind !== "animation") {
+    throw new Error(
+      `Model "${modelId}" is not an animation model; use resolveModel or resolveImageModel instead.`,
+    );
+  }
+  switch (descriptor.providerId) {
+    case "comfyui":
+      return { descriptor, provider: comfyUIAnimationProvider };
+    default:
+      throw new Error(
+        `Animation provider "${descriptor.providerId}" is not wired up yet (model ${modelId}).`,
       );
   }
 }

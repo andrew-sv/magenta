@@ -146,10 +146,45 @@ export type ImagineEvent =
   | ErrorEvent
   | DoneEvent;
 
+// Case 7 — Animate (per-call stream; one tile per HTTP call, fanout-shaped)
+export type AnimateTileMetaEvent = {
+  type: "animate.tile.meta";
+  tileKey: string;
+  modelId: string;
+  motionScale: number;
+  userMessageId: string;
+  assistantMessageId: string;
+};
+export type AnimateQueuedEvent = { type: "animate.queued"; position: number };
+export type AnimateProgressEvent = {
+  type: "animate.progress";
+  current: number;
+  total: number;
+};
+export type AnimateGifEvent = {
+  type: "animate.gif";
+  path: string;
+  mime: "image/gif";
+  width?: number;
+  height?: number;
+  frames?: number;
+  fps?: number;
+  seed?: number;
+};
+
+export type AnimateEvent =
+  | AnimateTileMetaEvent
+  | AnimateQueuedEvent
+  | AnimateProgressEvent
+  | AnimateGifEvent
+  | ErrorEvent
+  | DoneEvent;
+
 export type AnyChatEvent =
   | SingleEvent
   | FanoutEvent
   | LoopEvent
   | CouncilEvent
   | SynthesisEvent
-  | ImagineEvent;
+  | ImagineEvent
+  | AnimateEvent;
