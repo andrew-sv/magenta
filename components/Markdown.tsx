@@ -309,8 +309,8 @@ export function Markdown({ children, className }: Props) {
       className={[
         "prose prose-sm max-w-none",
         "dark:prose-invert",
-        "prose-pre:my-2 prose-pre:rounded-md prose-pre:bg-neutral-100 dark:prose-pre:bg-neutral-800",
-        "prose-code:rounded prose-code:bg-neutral-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:before:hidden prose-code:after:hidden dark:prose-code:bg-neutral-800",
+        "prose-pre:my-2 prose-pre:rounded-md prose-pre:bg-neutral-100 prose-pre:text-neutral-900 dark:prose-pre:bg-neutral-800 dark:prose-pre:text-neutral-100",
+        "prose-code:rounded prose-code:bg-neutral-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:text-neutral-900 prose-code:before:hidden prose-code:after:hidden dark:prose-code:bg-neutral-800 dark:prose-code:text-neutral-100",
         "prose-p:my-2 prose-headings:mt-3 prose-headings:mb-2",
         "prose-ul:my-2 prose-ol:my-2 prose-li:my-0",
         "prose-table:my-2",
