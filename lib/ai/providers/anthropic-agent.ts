@@ -39,7 +39,10 @@ class AnthropicAgentProvider implements ChatProvider {
           const event = msg.event as { type?: string; delta?: { type?: string; text?: string } };
           if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
             const delta = event.delta.text ?? "";
-            if (delta) yield { type: "text-delta", delta };
+            if (delta) {
+              yield { type: "text-delta", delta };
+              lastEmittedTextLen += delta.length;
+            }
           }
           continue;
         }
