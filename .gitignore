@@ -23,3 +23,6 @@ tsconfig.tsbuildinfo
 
 # Imagine-mode output: kept out of git but lives under public/ so Next can serve them.
 public/generated/
+
+# User-uploaded chat images: same deal — served by Next, never committed.
+public/uploads/

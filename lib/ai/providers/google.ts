@@ -1,10 +1,5 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import {
-  generateObject,
-  streamText,
-  type LanguageModel,
-  type ModelMessage,
-} from "ai";
+import { generateObject, streamText, type LanguageModel } from "ai";
 import { env } from "../../env";
 import type {
   ChatProvider,
@@ -12,6 +7,7 @@ import type {
   StreamChunk,
   StreamParams,
 } from "../types";
+import { toModelMessages } from "./ai-sdk-messages";
 
 const google = env.GOOGLE_GENERATIVE_AI_API_KEY
   ? createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY })
@@ -24,18 +20,6 @@ function resolve(modelName: string): LanguageModel {
     );
   }
   return google(modelName);
-}
-
-function toModelMessages(
-  messages: StreamParams["messages"],
-  system?: string,
-): ModelMessage[] {
-  const out: ModelMessage[] = [];
-  if (system) out.push({ role: "system", content: system });
-  for (const m of messages) {
-    out.push({ role: m.role, content: m.content } as ModelMessage);
-  }
-  return out;
 }
 
 class GoogleProvider implements ChatProvider {

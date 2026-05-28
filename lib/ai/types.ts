@@ -2,9 +2,22 @@ import type { z } from "zod";
 
 export type Role = "user" | "assistant" | "system";
 
+export type TextPart = { type: "text"; text: string };
+
+export type ImagePart = {
+  type: "image";
+  /** Raw base64 payload (no `data:` prefix), a `data:` URL, or an http(s) URL. */
+  image: string;
+  /** MIME type (e.g. "image/png"). Required when `image` is raw base64. */
+  mediaType?: string;
+};
+
+export type ContentPart = TextPart | ImagePart;
+
 export type ChatMessage = {
   role: Role;
-  content: string;
+  /** Plain text, or multimodal parts. Image parts are only honored on user turns. */
+  content: string | ContentPart[];
 };
 
 export type StreamChunk = { type: "text-delta"; delta: string };

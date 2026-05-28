@@ -1,4 +1,4 @@
-import { generateObject, streamText, type LanguageModel, type ModelMessage } from "ai";
+import { generateObject, streamText, type LanguageModel } from "ai";
 import { createOllama } from "ollama-ai-provider-v2";
 import { env } from "../../env";
 import type {
@@ -7,23 +7,12 @@ import type {
   StreamChunk,
   StreamParams,
 } from "../types";
+import { toModelMessages } from "./ai-sdk-messages";
 
 const ollama = createOllama({ baseURL: `${env.OLLAMA_BASE_URL}/api` });
 
 function resolve(modelName: string): LanguageModel {
   return ollama(modelName);
-}
-
-function toModelMessages(
-  messages: StreamParams["messages"],
-  system?: string,
-): ModelMessage[] {
-  const out: ModelMessage[] = [];
-  if (system) out.push({ role: "system", content: system });
-  for (const m of messages) {
-    out.push({ role: m.role, content: m.content } as ModelMessage);
-  }
-  return out;
 }
 
 class VercelOllamaProvider implements ChatProvider {

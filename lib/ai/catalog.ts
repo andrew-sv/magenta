@@ -13,6 +13,8 @@ export type TextModelDescriptor = BaseModelDescriptor & {
   capabilities: {
     streaming: boolean;
     structuredOutput: boolean;
+    /** Model accepts image parts in the prompt (multimodal input). */
+    vision: boolean;
   };
 };
 
@@ -81,7 +83,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "claude-opus-4-7",
     kind: "text",
     contextWindow: 200_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "anthropic:claude-sonnet-4-6",
@@ -90,7 +92,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "claude-sonnet-4-6",
     kind: "text",
     contextWindow: 200_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "anthropic:claude-haiku-4-5",
@@ -99,7 +101,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "claude-haiku-4-5-20251001",
     kind: "text",
     contextWindow: 200_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "google:gemini-2.5-flash",
@@ -108,7 +110,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "gemini-2.5-flash",
     kind: "text",
     contextWindow: 1_048_576,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "google:gemini-2.5-flash-lite",
@@ -117,7 +119,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "gemini-2.5-flash-lite",
     kind: "text",
     contextWindow: 1_048_576,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "google:gemini-3-flash-preview",
@@ -126,7 +128,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "gemini-3-flash-preview",
     kind: "text",
     contextWindow: 1_048_576,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "ollama:llama3.1",
@@ -135,7 +137,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "llama3.1",
     kind: "text",
     contextWindow: 128_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: false },
   },
   {
     id: "ollama:gpt-oss",
@@ -144,7 +146,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "gpt-oss",
     kind: "text",
     contextWindow: 128_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: false },
   },
   {
     id: "ollama:gemma4:26b",
@@ -153,7 +155,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "gemma4:26b",
     kind: "text",
     contextWindow: 128_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "ollama:deepseek-r1:14b",
@@ -162,7 +164,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "deepseek-r1:14b",
     kind: "text",
     contextWindow: 128_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: false },
   },
   {
     id: "ollama:qwen2.5-coder:14b",
@@ -171,7 +173,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "qwen2.5-coder:14b",
     kind: "text",
     contextWindow: 32_768,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: false },
   },
   {
     id: "ollama:qwen2.5vl",
@@ -180,7 +182,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "qwen2.5vl",
     kind: "text",
     contextWindow: 128_000,
-    capabilities: { streaming: true, structuredOutput: true },
+    capabilities: { streaming: true, structuredOutput: true, vision: true },
   },
   {
     id: "ollama:XTeMixX/x-ai",
@@ -189,7 +191,7 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     modelName: "XTeMixX/x-ai",
     kind: "text",
     contextWindow: 32_768,
-    capabilities: { streaming: true, structuredOutput: false },
+    capabilities: { streaming: true, structuredOutput: false, vision: false },
   },
   {
     id: "comfyui:sdxl-turbo",

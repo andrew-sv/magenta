@@ -6,11 +6,25 @@ import { sseResponse } from "@/lib/sse/writer";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const Body = z.object({
-  conversationId: z.string().uuid(),
-  modelId: z.string().min(1),
-  userContent: z.string().min(1),
-});
+const Body = z
+  .object({
+    conversationId: z.string().uuid(),
+    modelId: z.string().min(1),
+    userContent: z.string().default(""),
+    images: z
+      .array(
+        z.object({
+          dataBase64: z.string().min(1),
+          mime: z.string().regex(/^image\//, "mime must be an image/* type"),
+        }),
+      )
+      .max(4)
+      .optional(),
+  })
+  // A turn must carry text, image(s), or both — not nothing.
+  .refine((b) => b.userContent.trim().length > 0 || (b.images?.length ?? 0) > 0, {
+    message: "Provide text or at least one image.",
+  });
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);

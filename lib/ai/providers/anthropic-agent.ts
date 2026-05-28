@@ -2,10 +2,24 @@ import { query, type SDKMessage, type Options } from "@anthropic-ai/claude-agent
 import type {
   ChatMessage,
   ChatProvider,
+  ContentPart,
   GenerateObjectParams,
   StreamChunk,
   StreamParams,
 } from "../types";
+
+/**
+ * Flattens multimodal content to plain text. This adapter passes a single
+ * prompt string to the Agent SDK and does not yet forward image parts; image
+ * support for Claude is a separate change to `buildPrompt`.
+ */
+function contentToText(content: ChatMessage["content"]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((p: ContentPart): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+}
 
 /**
  * Adapter over the Claude Agent SDK. Authenticates via `~/.claude/` credentials
@@ -137,7 +151,7 @@ function buildPrompt(params: StreamParams): {
   }
   if (promptIdx === -1) promptIdx = params.messages.length - 1;
 
-  const prompt = params.messages[promptIdx].content;
+  const prompt = contentToText(params.messages[promptIdx].content);
 
   const priorTurns = params.messages
     .slice(0, promptIdx)
@@ -148,7 +162,7 @@ function buildPrompt(params: StreamParams): {
   }
 
   const transcript = priorTurns
-    .map((m) => `<turn role="${m.role}">\n${m.content}\n</turn>`)
+    .map((m) => `<turn role="${m.role}">\n${contentToText(m.content)}\n</turn>`)
     .join("\n");
   const historySystem =
     "Prior conversation history is provided below for context. The user's " +

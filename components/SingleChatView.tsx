@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
 import { ModelSelect } from "./ModelSelect";
-import { PromptComposer } from "./PromptComposer";
+import { PromptComposer, type ComposerImage } from "./PromptComposer";
+import { findModel } from "@/lib/ai/catalog";
 import { postSse } from "@/lib/sse/client";
 import type { SingleEvent } from "@/lib/sse/events";
 import type { Conversation, Message } from "@/lib/db/schema";
@@ -26,6 +27,9 @@ export function SingleChatView({ conversation }: Props) {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const selected = modelId ? findModel(modelId) : undefined;
+  const allowImages = selected?.kind === "text" && selected.capabilities.vision;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +55,7 @@ export function SingleChatView({ conversation }: Props) {
     return () => abortRef.current?.abort();
   }, []);
 
-  async function submit(text: string) {
+  async function submit(text: string, images?: ComposerImage[]) {
     if (!modelId) return;
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -64,7 +68,13 @@ export function SingleChatView({ conversation }: Props) {
       content: text,
       status: "complete",
       clientMessageId: null,
-      attachments: [],
+      // Render the just-picked images immediately via data URLs; the server
+      // persists them under /uploads and returns real paths on next load.
+      attachments: (images ?? []).map((im) => ({
+        kind: "image" as const,
+        path: `data:${im.mime};base64,${im.dataBase64}`,
+        mime: im.mime,
+      })),
       createdAt: new Date(),
     };
     setMessages((m) => [...m, userMsg]);
@@ -82,7 +92,12 @@ export function SingleChatView({ conversation }: Props) {
     try {
       for await (const event of postSse<SingleEvent>(
         "/api/chat/single",
-        { conversationId: conversation.id, modelId, userContent: text },
+        {
+          conversationId: conversation.id,
+          modelId,
+          userContent: text,
+          images: images?.map((im) => ({ dataBase64: im.dataBase64, mime: im.mime })),
+        },
         controller.signal,
       )) {
         if (event.type === "token") {
@@ -203,6 +218,7 @@ export function SingleChatView({ conversation }: Props) {
         onAbort={() => abortRef.current?.abort()}
         busy={busy}
         disabled={!modelId}
+        allowImages={allowImages}
         placeholder={modelId ? "Type a message…" : "Pick a model first"}
       />
     </div>
@@ -212,10 +228,24 @@ export function SingleChatView({ conversation }: Props) {
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
   if (isUser) {
+    const imageAttachments = message.attachments.filter((a) => a.kind === "image");
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-magenta-600 px-4 py-2 text-sm text-white shadow-sm">
-          {message.content}
+        <div className="max-w-[85%] rounded-2xl bg-magenta-600 px-4 py-2 text-sm text-white shadow-sm">
+          {imageAttachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {imageAttachments.map((a, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={a.path}
+                  alt=""
+                  className="max-h-48 rounded-lg"
+                />
+              ))}
+            </div>
+          )}
+          {message.content && <div className="whitespace-pre-wrap">{message.content}</div>}
         </div>
       </div>
     );
