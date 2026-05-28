@@ -4,6 +4,7 @@ import { CouncilView } from "@/components/CouncilView";
 import { FanoutView } from "@/components/FanoutView";
 import { ImagineView } from "@/components/ImagineView";
 import { LoopView } from "@/components/LoopView";
+import { MusicView } from "@/components/MusicView";
 import { SingleChatView } from "@/components/SingleChatView";
 import { SynthesisView } from "@/components/SynthesisView";
 import { getConversation } from "@/lib/db/queries";
@@ -34,5 +35,7 @@ export default async function ChatPage({
       return <ImagineView conversation={conversation} />;
     case "animate":
       return <AnimateView conversation={conversation} />;
+    case "music":
+      return <MusicView conversation={conversation} />;
   }
 }

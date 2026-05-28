@@ -224,3 +224,137 @@ export const ANIMATION_WORKFLOWS = {
 } as const;
 
 export type AnimationWorkflowName = keyof typeof ANIMATION_WORKFLOWS;
+
+// ---------- Audio (music) workflows ----------
+
+export type AudioWorkflowParams = {
+  ckptName: string;
+  /** Style/genre/mood tags (ACE-Step) or text prompt (Stable Audio). */
+  prompt: string;
+  /** Lyrics for ACE-Step; ignored by instrumental models. */
+  lyrics: string;
+  negativePrompt: string;
+  durationSeconds: number;
+  steps: number;
+  cfg: number;
+  seed: number;
+};
+
+function aceStep(p: AudioWorkflowParams): ComfyWorkflow {
+  // ACE-Step v1 via ComfyUI's native audio nodes. `tags` carries the style
+  // prompt; `lyrics` is sung. ModelSamplingSD3 shift=5 matches ComfyUI's
+  // reference workflow. Negative is a zeroed-out copy of the positive
+  // conditioning (ACE-Step has no separate negative text encoder).
+  return {
+    "1": {
+      class_type: "CheckpointLoaderSimple",
+      inputs: { ckpt_name: p.ckptName },
+    },
+    "2": {
+      class_type: "EmptyAceStepLatentAudio",
+      inputs: { seconds: p.durationSeconds, batch_size: 1 },
+    },
+    "3": {
+      class_type: "TextEncodeAceStepAudio",
+      inputs: {
+        clip: ["1", 1],
+        tags: p.prompt,
+        lyrics: p.lyrics,
+        lyrics_strength: 1.0,
+      },
+    },
+    "4": {
+      class_type: "ConditioningZeroOut",
+      inputs: { conditioning: ["3", 0] },
+    },
+    "5": {
+      class_type: "ModelSamplingSD3",
+      inputs: { model: ["1", 0], shift: 5.0 },
+    },
+    "6": {
+      class_type: "KSampler",
+      inputs: {
+        seed: p.seed,
+        steps: p.steps,
+        cfg: p.cfg,
+        sampler_name: "euler",
+        scheduler: "simple",
+        denoise: 1.0,
+        model: ["5", 0],
+        positive: ["3", 0],
+        negative: ["4", 0],
+        latent_image: ["2", 0],
+      },
+    },
+    "7": {
+      class_type: "VAEDecodeAudio",
+      inputs: { samples: ["6", 0], vae: ["1", 2] },
+    },
+    "8": {
+      class_type: "SaveAudio",
+      inputs: { audio: ["7", 0], filename_prefix: "magenta" },
+    },
+  };
+}
+
+/** Companion text encoder Stable Audio Open needs in ComfyUI/models/text_encoders/. */
+const STABLE_AUDIO_T5 = "t5_base.safetensors";
+
+function stableAudio(p: AudioWorkflowParams): ComfyWorkflow {
+  // Stable Audio Open: text-conditioned instrumental/SFX, no lyrics. Its
+  // checkpoint does NOT bundle a text encoder — ComfyUI loads t5_base via a
+  // separate CLIPLoader (type "stable_audio"). MODEL and VAE come from the
+  // checkpoint; CLIP comes from the loader.
+  return {
+    "1": {
+      class_type: "CheckpointLoaderSimple",
+      inputs: { ckpt_name: p.ckptName },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: { clip_name: STABLE_AUDIO_T5, type: "stable_audio" },
+    },
+    "3": {
+      class_type: "EmptyLatentAudio",
+      inputs: { seconds: p.durationSeconds, batch_size: 1 },
+    },
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: { text: p.prompt, clip: ["2", 0] },
+    },
+    "5": {
+      class_type: "CLIPTextEncode",
+      inputs: { text: p.negativePrompt, clip: ["2", 0] },
+    },
+    "6": {
+      class_type: "KSampler",
+      inputs: {
+        seed: p.seed,
+        steps: p.steps,
+        cfg: p.cfg,
+        sampler_name: "dpmpp_3m_sde_gpu",
+        scheduler: "exponential",
+        denoise: 1.0,
+        model: ["1", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["3", 0],
+      },
+    },
+    "7": {
+      class_type: "VAEDecodeAudio",
+      inputs: { samples: ["6", 0], vae: ["1", 2] },
+    },
+    "8": {
+      class_type: "SaveAudio",
+      inputs: { audio: ["7", 0], filename_prefix: "magenta" },
+    },
+  };
+}
+
+export const AUDIO_WORKFLOWS = {
+  "ace-step": aceStep,
+  "stable-audio": stableAudio,
+} as const;
+
+export type AudioWorkflowName = keyof typeof AUDIO_WORKFLOWS;

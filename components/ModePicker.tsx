@@ -10,7 +10,8 @@ type ConversationMode =
   | "council"
   | "synthesis"
   | "imagine"
-  | "animate";
+  | "animate"
+  | "music";
 
 type Mode = {
   id: ConversationMode;
@@ -60,6 +61,12 @@ const MODES: Mode[] = [
     id: "animate",
     title: "Animate",
     description: "AnimateDiff GIFs, same prompt at low and high motion. Powered by ComfyUI.",
+    ready: true,
+  },
+  {
+    id: "music",
+    title: "Music",
+    description: "ACE-Step song (with lyrics) and Stable Audio instrumental, side by side. Powered by ComfyUI.",
     ready: true,
   },
 ];

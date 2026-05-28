@@ -12,6 +12,7 @@ const MODE_LABEL: Record<ChatHistoryEntry["mode"], string> = {
   synthesis: "Synthesis",
   imagine: "Imagine",
   animate: "Animate",
+  music: "Music",
 };
 
 const MODE_ORDER: ChatHistoryEntry["mode"][] = [

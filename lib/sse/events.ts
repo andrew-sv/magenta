@@ -180,6 +180,36 @@ export type AnimateEvent =
   | ErrorEvent
   | DoneEvent;
 
+// Case 8 — Music (per-call stream; one tile per HTTP call, fanout-shaped)
+export type MusicTileMetaEvent = {
+  type: "music.tile.meta";
+  tileKey: string;
+  modelId: string;
+  userMessageId: string;
+  assistantMessageId: string;
+};
+export type MusicQueuedEvent = { type: "music.queued"; position: number };
+export type MusicProgressEvent = {
+  type: "music.progress";
+  current: number;
+  total: number;
+};
+export type MusicAudioEvent = {
+  type: "music.audio";
+  path: string;
+  mime: string;
+  durationSeconds?: number;
+  seed?: number;
+};
+
+export type MusicEvent =
+  | MusicTileMetaEvent
+  | MusicQueuedEvent
+  | MusicProgressEvent
+  | MusicAudioEvent
+  | ErrorEvent
+  | DoneEvent;
+
 export type AnyChatEvent =
   | SingleEvent
   | FanoutEvent
@@ -187,4 +217,5 @@ export type AnyChatEvent =
   | CouncilEvent
   | SynthesisEvent
   | ImagineEvent
-  | AnimateEvent;
+  | AnimateEvent
+  | MusicEvent;

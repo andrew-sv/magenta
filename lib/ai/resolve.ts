@@ -1,15 +1,25 @@
 import {
   getModelOrThrow,
   type AnimationModelDescriptor,
+  type AudioModelDescriptor,
   type ImageModelDescriptor,
   type ModelDescriptor,
   type TextModelDescriptor,
 } from "./catalog";
 import { anthropicAgentProvider } from "./providers/anthropic-agent";
-import { comfyUIAnimationProvider, comfyUIProvider } from "./providers/comfyui";
+import {
+  comfyUIAnimationProvider,
+  comfyUIAudioProvider,
+  comfyUIProvider,
+} from "./providers/comfyui";
 import { googleProvider } from "./providers/google";
 import { vercelOllamaProvider } from "./providers/vercel-ollama";
-import type { AnimationProvider, ChatProvider, ImageProvider } from "./types";
+import type {
+  AnimationProvider,
+  AudioProvider,
+  ChatProvider,
+  ImageProvider,
+} from "./types";
 
 export type ResolvedTextModel = {
   descriptor: TextModelDescriptor;
@@ -24,6 +34,11 @@ export type ResolvedImageModel = {
 export type ResolvedAnimationModel = {
   descriptor: AnimationModelDescriptor;
   provider: AnimationProvider;
+};
+
+export type ResolvedAudioModel = {
+  descriptor: AudioModelDescriptor;
+  provider: AudioProvider;
 };
 
 export type ResolvedModel = ResolvedTextModel;
@@ -79,6 +94,23 @@ export function resolveAnimationModel(modelId: string): ResolvedAnimationModel {
     default:
       throw new Error(
         `Animation provider "${descriptor.providerId}" is not wired up yet (model ${modelId}).`,
+      );
+  }
+}
+
+export function resolveAudioModel(modelId: string): ResolvedAudioModel {
+  const descriptor: ModelDescriptor = getModelOrThrow(modelId);
+  if (descriptor.kind !== "audio") {
+    throw new Error(
+      `Model "${modelId}" is not an audio model; use resolveModel, resolveImageModel, or resolveAnimationModel instead.`,
+    );
+  }
+  switch (descriptor.providerId) {
+    case "comfyui":
+      return { descriptor, provider: comfyUIAudioProvider };
+    default:
+      throw new Error(
+        `Audio provider "${descriptor.providerId}" is not wired up yet (model ${modelId}).`,
       );
   }
 }

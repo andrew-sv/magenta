@@ -44,10 +44,24 @@ export type AnimationModelDescriptor = BaseModelDescriptor & {
   };
 };
 
+export type AudioModelDescriptor = BaseModelDescriptor & {
+  kind: "audio";
+  /** Name of the workflow template under lib/ai/workflows.ts. */
+  workflow: string;
+  /** Whether the model can sing supplied lyrics (vs. instrumental/SFX only). */
+  supportsLyrics: boolean;
+  defaults: {
+    durationSeconds: number;
+    steps: number;
+    cfg?: number;
+  };
+};
+
 export type ModelDescriptor =
   | TextModelDescriptor
   | ImageModelDescriptor
-  | AnimationModelDescriptor;
+  | AnimationModelDescriptor
+  | AudioModelDescriptor;
 
 /**
  * The static catalog of models the UI can show. Availability of individual
@@ -204,6 +218,26 @@ export const MODEL_CATALOG: readonly ModelDescriptor[] = [
     workflow: "animatediff-sd15",
     motionModule: "mm_sd_v15_v2.ckpt",
     defaults: { width: 512, height: 512, steps: 20, cfg: 7.5, frames: 16, fps: 8 },
+  },
+  {
+    id: "comfyui:ace-step-v1",
+    label: "ACE-Step v1 3.5B — songs (ComfyUI)",
+    providerId: "comfyui",
+    modelName: "ace_step_v1_3.5b.safetensors",
+    kind: "audio",
+    workflow: "ace-step",
+    supportsLyrics: true,
+    defaults: { durationSeconds: 120, steps: 50, cfg: 5 },
+  },
+  {
+    id: "comfyui:stable-audio-open",
+    label: "Stable Audio Open — instrumental/SFX (ComfyUI)",
+    providerId: "comfyui",
+    modelName: "stable_audio_open_1.0.safetensors",
+    kind: "audio",
+    workflow: "stable-audio",
+    supportsLyrics: false,
+    defaults: { durationSeconds: 47, steps: 50, cfg: 5 },
   },
 ] as const;
 

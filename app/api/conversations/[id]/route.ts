@@ -68,7 +68,7 @@ export async function DELETE(
   }
 
   let filesRemoved = false;
-  if (row.mode === "imagine" || row.mode === "animate") {
+  if (row.mode === "imagine" || row.mode === "animate" || row.mode === "music") {
     // Guard against any future path-trickery: resolve the target and confirm
     // it lives strictly inside PUBLIC_GENERATED_DIR before recursive rm.
     const target = resolve(join(PUBLIC_GENERATED_DIR, id));

@@ -115,3 +115,38 @@ export interface AnimationProvider {
   readonly providerId: ProviderId;
   generate(params: AnimationGenParams): AsyncIterable<AnimationEvent>;
 }
+
+// ---------- Audio (music) generation ----------
+
+export type AudioGenParams = {
+  modelName: string;
+  workflow: string;
+  /** Style/genre/instrument/mood description (ACE-Step "tags", Stable Audio prompt). */
+  prompt: string;
+  /** Lyrics for sung output. Empty string yields an instrumental. */
+  lyrics?: string;
+  negativePrompt?: string;
+  /** Target clip length in seconds. */
+  durationSeconds: number;
+  steps: number;
+  cfg?: number;
+  seed?: number;
+  signal: AbortSignal;
+};
+
+export type AudioEvent =
+  | { type: "queued"; position: number }
+  | { type: "progress"; current: number; total: number }
+  | {
+      type: "audio";
+      /** e.g. "audio/flac", "audio/mpeg". */
+      mime: string;
+      dataBase64: string;
+      durationSeconds?: number;
+      seed?: number;
+    };
+
+export interface AudioProvider {
+  readonly providerId: ProviderId;
+  generate(params: AudioGenParams): AsyncIterable<AudioEvent>;
+}

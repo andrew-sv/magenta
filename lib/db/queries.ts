@@ -164,7 +164,7 @@ export async function listChatHistory(limit = 200): Promise<ChatHistoryEntry[]> 
   const convoRows = await db
     .select()
     .from(conversations)
-    .where(sql`${conversations.mode} NOT IN ('imagine', 'animate')`)
+    .where(sql`${conversations.mode} NOT IN ('imagine', 'animate', 'music')`)
     .orderBy(desc(conversations.updatedAt))
     .limit(limit);
 
@@ -238,8 +238,14 @@ export async function listAnimateGallery(limit = 200): Promise<AnimateGalleryEnt
   return listGalleryByMode("animate", limit);
 }
 
+export type MusicGalleryEntry = ImagineGalleryEntry;
+
+export async function listMusicGallery(limit = 200): Promise<MusicGalleryEntry[]> {
+  return listGalleryByMode("music", limit);
+}
+
 async function listGalleryByMode(
-  mode: "imagine" | "animate",
+  mode: "imagine" | "animate" | "music",
   limit: number,
 ): Promise<ImagineGalleryEntry[]> {
   const rows = await db

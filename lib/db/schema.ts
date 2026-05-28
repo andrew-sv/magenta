@@ -19,9 +19,10 @@ export const conversationModeEnum = pgEnum("conversation_mode", [
   "synthesis",
   "imagine",
   "animate",
+  "music",
 ]);
 
-export type MessageAttachment = {
+export type ImageAttachment = {
   kind: "image";
   path: string;
   mime: string;
@@ -30,6 +31,17 @@ export type MessageAttachment = {
   modelId?: string;
   prompt?: string;
 };
+
+export type AudioAttachment = {
+  kind: "audio";
+  path: string;
+  mime: string;
+  durationSeconds?: number;
+  modelId?: string;
+  prompt?: string;
+};
+
+export type MessageAttachment = ImageAttachment | AudioAttachment;
 
 export const messageRoleEnum = pgEnum("message_role", [
   "user",
