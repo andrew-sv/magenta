@@ -1,10 +1,10 @@
 # Architecture
 
-Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**. Text streaming uses **Vercel AI SDK** (for Ollama and future OpenAI/Gemini/xAI) and the **Claude Agent SDK** (for Claude, billed against the user's Pro/Max subscription) behind a single internal abstraction. Image generation uses a local **ComfyUI** server (`http://127.0.0.1:8000` for the Desktop app) over its REST + WebSocket API.
+Design overview for Magenta — a local multi-agent chat. Stack: **Next.js (App Router)**, **TypeScript**, **Postgres + Drizzle**. Text streaming uses **Vercel AI SDK** (for Ollama and future OpenAI/Gemini/xAI) and the **Claude Agent SDK** (for Claude, billed against the user's Pro/Max subscription) behind a single internal abstraction. Image, animation, and music generation use a local **ComfyUI** server (`http://127.0.0.1:8000` for the Desktop app) over its REST + WebSocket API.
 
 ## Goals & non-goals
 
-**Goals.** Run six modes (single, fanout, loop, council, synthesis, imagine) against a mix of hosted (Claude) and local (Ollama text/vision, ComfyUI image) models. Persist all conversations, messages, attachments, and inter-model scores. Stream every response. Make adding providers (OpenAI, Gemini, xAI) purely additive.
+**Goals.** Run eight modes (single, fanout, loop, council, synthesis, imagine, animate, music) against a mix of hosted (Claude) and local (Ollama text/vision, ComfyUI image/animation/audio) models. Persist all conversations, messages, attachments, and inter-model scores. Stream every response. Make adding providers (OpenAI, Gemini, xAI) purely additive.
 
 **Non-goals.** Multi-user auth, sharing, accounts, billing, RAG/files, agent tools/actions, cloud deployment. This is a single-machine app.
 
@@ -17,25 +17,27 @@ app/
   chat/[conversationId]/page.tsx   # renders the view matching conversation.mode
   chats/history/page.tsx           # text-mode conversation list, grouped by mode
   imagine/history/page.tsx         # gallery view of past imagine sessions
+  animate/history/page.tsx         # gallery view of past animate sessions
+  music/history/page.tsx           # player grid of past music sessions
   api/
-    chat/{single,fanout,loop,council,synthesis,imagine}/route.ts
+    chat/{single,fanout,loop,council,synthesis,imagine,animate,music}/route.ts
     conversations/route.ts
     conversations/[id]/route.ts
     models/route.ts
 lib/
   ai/        types.ts | catalog.ts | resolve.ts | workflows.ts
-  ai/providers/  anthropic-agent.ts | vercel-ollama.ts | comfyui.ts
-  orchestrators/  single.ts | fanout.ts | loop.ts | council.ts | synthesis.ts | imagine.ts
+  ai/providers/  anthropic-agent.ts | vercel-ollama.ts | google.ts | comfyui.ts
+  orchestrators/  single.ts | fanout.ts | loop.ts | council.ts | synthesis.ts | imagine.ts | animate.ts | music.ts
   sse/       events.ts | writer.ts | client.ts
   db/        client.ts | schema.ts | queries.ts | migrate.ts
   env.ts
 components/  ModePicker | ModelSelect | PromptComposer | Markdown
-             SingleChatView | FanoutView | LoopView | CouncilView | SynthesisView | ImagineView
+             SingleChatView | FanoutView | LoopView | CouncilView | SynthesisView | ImagineView | AnimateView | MusicView
 drizzle/                           # generated migrations
 drizzle.config.ts
 .env.example
 middleware.ts                      # MAGENTA_LOCAL_ONLY guard on /api/*
-public/generated/                  # ComfyUI output, gitignored, served by Next's static handler
+public/generated/                  # ComfyUI image/GIF/audio output, gitignored, served by Next's static handler
 ```
 
 Orchestrators are pure server functions — `(params, signal, db, emit) → ReadableStream`. Route handlers validate input, open a stream, and delegate. Each orchestrator owns its own SSE event schema.
@@ -88,11 +90,36 @@ export interface ImageProvider {
 }
 ```
 
-`lib/ai/providers/` holds three adapters:
+Animation and music reuse the same event-stream shape with their own params and terminal event. **`AnimationProvider`** takes AnimateDiff knobs (`frames`, `fps`, `motionModule`, `motionScale`) and ends with a `gif` event. **`AudioProvider`** takes music knobs and ends with an `audio` event:
+
+```ts
+// lib/ai/types.ts
+export type AudioEvent =
+  | { type: "queued"; position: number }
+  | { type: "progress"; current: number; total: number }
+  | { type: "audio"; mime: string; dataBase64: string; durationSeconds?: number; seed?: number }
+
+export interface AudioProvider {
+  generate(params: {
+    modelName: string         // checkpoint filename
+    workflow: string          // "ace-step" | "stable-audio"
+    prompt: string            // style/genre/mood ("tags" for ACE-Step)
+    lyrics?: string           // sung by ACE-Step; ignored by instrumental models
+    negativePrompt?: string
+    durationSeconds: number; steps: number; cfg?: number; seed?: number
+    signal: AbortSignal
+  }): AsyncIterable<AudioEvent>
+}
+```
+
+All three ComfyUI-backed interfaces are implemented by adapters in `comfyui.ts` sharing the same WebSocket/queue/`/history`/`/view` machinery — only the workflow graph and terminal output type differ. `AudioEvent` has no `preview` (audio workflows emit no usable preview frames).
+
+`lib/ai/providers/` holds these adapters:
 
 - **`anthropic-agent.ts`** — wraps `query()` from `@anthropic-ai/claude-agent-sdk` with `tools: []`, `includePartialMessages: true`, and an `abortController`. Token deltas come from `SDKPartialAssistantMessage` events. `generateObject` is implemented by prompting for JSON-only output and validating with zod (with up to 2 retries).
-- **`vercel-ollama.ts`** — wraps `streamText` / `generateObject` from the Vercel AI SDK. Currently used for Ollama via `ollama-ai-provider-v2`; future hosted providers (OpenAI, Gemini, xAI) plug in here.
-- **`comfyui.ts`** — wraps ComfyUI's REST + WebSocket protocol. Opens a `/ws?clientId=…` connection, POSTs a workflow JSON to `/prompt`, demultiplexes `progress`, `executing`, `execution_success`, and binary preview frames into typed `ImageEvent`s, and fetches finished images from `/view`. Abort calls `/interrupt` (note: it is global, not per-prompt).
+- **`vercel-ollama.ts`** — wraps `streamText` / `generateObject` from the Vercel AI SDK. Currently used for Ollama via `ollama-ai-provider-v2`; future hosted providers (OpenAI, xAI) plug in here.
+- **`google.ts`** — Gemini text/vision via the Vercel AI SDK's Google provider, gated on `GOOGLE_GENERATIVE_AI_API_KEY`.
+- **`comfyui.ts`** — wraps ComfyUI's REST + WebSocket protocol. Opens a `/ws?clientId=…` connection, POSTs a workflow JSON to `/prompt`, demultiplexes `progress`, `executing`, `execution_error`/`execution_interrupted`, and binary preview frames, and fetches finished files from `/view`. Exports three adapters off this same plumbing: `comfyUIProvider` (`ImageProvider`, images from `outputs.*.images`), `comfyUIAnimationProvider` (`AnimationProvider`, GIF from `outputs.*.gifs`), and `comfyUIAudioProvider` (`AudioProvider`, file from `outputs.*.audio`). Abort calls `/interrupt` (note: it is global, not per-prompt).
 
 `lib/ai/catalog.ts` exports a discriminated `MODEL_CATALOG`:
 
@@ -117,10 +144,28 @@ type ImageModelDescriptor = {
   defaults: { width: number; height: number; steps: number; cfg?: number }
 }
 
-type ModelDescriptor = TextModelDescriptor | ImageModelDescriptor
+type AnimationModelDescriptor = {
+  id: string; label: string; providerId: "comfyui"; modelName: string
+  kind: "animation"
+  workflow: string                 // "animatediff-sd15"
+  motionModule: string             // file in ComfyUI/models/animatediff_models/
+  defaults: { width; height; steps; cfg?; frames; fps }
+}
+
+type AudioModelDescriptor = {
+  id: string                       // "comfyui:ace-step-v1"
+  label: string; providerId: "comfyui"; modelName: string
+  kind: "audio"
+  workflow: string                 // "ace-step" | "stable-audio"
+  supportsLyrics: boolean          // ACE-Step true; Stable Audio false
+  defaults: { durationSeconds: number; steps: number; cfg?: number }
+}
+
+type ModelDescriptor =
+  | TextModelDescriptor | ImageModelDescriptor | AnimationModelDescriptor | AudioModelDescriptor
 ```
 
-`lib/ai/resolve.ts` exports two narrowing resolvers: **`resolveModel(id)`** returns `{ descriptor: TextModelDescriptor; provider: ChatProvider }` and throws for image ids; **`resolveImageModel(id)`** is the symmetric image-side resolver. Adding a hosted provider later: append entries in `catalog.ts` with the right `kind` and route the providerId in the matching resolver.
+`lib/ai/resolve.ts` exports four narrowing resolvers, one per `kind`: **`resolveModel(id)`** (`ChatProvider`), **`resolveImageModel(id)`** (`ImageProvider`), **`resolveAnimationModel(id)`** (`AnimationProvider`), and **`resolveAudioModel(id)`** (`AudioProvider`). Each throws if the id's `kind` doesn't match. Adding a provider later: append entries in `catalog.ts` with the right `kind` and route the providerId in the matching resolver.
 
 `/api/models` returns the catalog with each entry's availability resolved at request time:
 
@@ -152,6 +197,8 @@ Each event is one SSE `data:` line containing JSON `{ type, ...payload }`. Share
 | `council`    | `member.start`, `member.token`, `member.complete`, `scoring.start`, `score`, `scoring.complete`   |
 | `synthesis`  | …all council events, then `synthesis.start`, `synthesis.token`, `synthesis.complete`              |
 | `imagine`    | `tile.meta`, `imagine.queued`, `imagine.progress`, `imagine.preview`, `imagine.image` (one HTTP call per tile — client opens N) |
+| `animate`    | `animate.tile.meta`, `animate.queued`, `animate.progress`, `animate.gif` (one HTTP call per tile)  |
+| `music`      | `music.tile.meta`, `music.queued`, `music.progress`, `music.audio` (one HTTP call per tile)        |
 
 The union lives in `lib/sse/events.ts`.
 
@@ -160,7 +207,7 @@ The union lives in `lib/sse/events.ts`.
 ```
 conversations
   id uuid pk
-  mode enum(single|fanout|loop|council|synthesis|imagine)
+  mode enum(single|fanout|loop|council|synthesis|imagine|animate|music)
   title text
   config jsonb            -- mode-specific setup
   created_at, updated_at
@@ -168,17 +215,17 @@ conversations
 messages
   id uuid pk
   conversation_id fk
-  parent_id uuid null     -- siblings for fanout panes / council members / imagine tiles
+  parent_id uuid null     -- siblings for fanout panes / council members / imagine|animate|music tiles
   role enum(user|assistant|system|scorer|synthesizer)
   model_id text null
-  pane_key text null      -- Case 2 pane key / Case 4 member key / Case 6 tile key
+  pane_key text null      -- Case 2 pane key / Case 4 member key / Case 6-8 tile key
   round int null          -- Case 3 round number
-  content text            -- prompt for imagine assistant messages
+  content text            -- prompt for media (imagine/animate/music) assistant messages
   status enum(streaming|complete|aborted|error)
   client_message_id text null
-  attachments jsonb       -- MessageAttachment[]: image refs for imagine mode (see below)
+  attachments jsonb       -- MessageAttachment[]: media refs for imagine/animate/music (see below)
   created_at
-  UNIQUE (conversation_id, client_message_id)   -- fanout / imagine dedupe
+  UNIQUE (conversation_id, client_message_id)   -- fanout / imagine / animate / music dedupe
 
 scores
   id uuid pk
@@ -208,22 +255,32 @@ runs
 - council:   `{ memberIds: string[] }`
 - synthesis: `{ memberIds: string[], synthesizerId: string }`
 - imagine:   `{ tileModelIds: string[] }`
+- animate:   `{}` (tiles are fixed low/high-motion presets, client-side)
+- music:     `{}` (tiles are fixed ACE-Step / Stable Audio, client-side)
 
-`messages.attachments` is typed as `MessageAttachment[]` (see `lib/db/schema.ts`):
+`messages.attachments` is typed as `MessageAttachment[]` — a union of image and audio refs (see `lib/db/schema.ts`):
 
 ```ts
-type MessageAttachment = {
+type ImageAttachment = {           // imagine (.png) and animate (.gif)
   kind: "image"
-  path: string              // "/generated/<conversationId>/<messageId>.png"
+  path: string                     // "/generated/<conversationId>/<messageId>.png"
   mime: string
-  width?: number
-  height?: number
-  modelId?: string
-  prompt?: string
+  width?: number; height?: number
+  modelId?: string; prompt?: string
 }
+
+type AudioAttachment = {           // music (.flac/.mp3/…)
+  kind: "audio"
+  path: string                     // "/generated/<conversationId>/<messageId>.flac"
+  mime: string
+  durationSeconds?: number
+  modelId?: string; prompt?: string
+}
+
+type MessageAttachment = ImageAttachment | AudioAttachment
 ```
 
-Defaults to `[]` for every row; only imagine assistant messages populate it.
+Defaults to `[]` for every row; only imagine/animate/music assistant messages populate it.
 
 Averages for council/synthesis are computed at query time (`avg(score) GROUP BY target_message_id`).
 
@@ -296,9 +353,22 @@ Workflow templates (`lib/ai/workflows.ts`) are TypeScript functions `(params) =>
 
 ComfyUI's `/interrupt` endpoint is **global** — it cancels whatever's running in the queue regardless of `prompt_id`. We accept that limitation; the alternative (cross-check `/queue` before interrupting) is on the table if it bites in practice.
 
+### Case 7 — Animate
+Same client/server shape as Imagine, resolved via `resolveAnimationModel(modelId)` (catalog `kind: "animation"`). Tiles are fixed **motion presets** (low ×0.6 / high ×1.2) rather than distinct models — both submit the same `comfyui:animatediff-sd15` model with a different `motionScale`. The adapter runs the `animatediff-sd15` workflow (SD1.5 + AnimateDiff-Evolved), and `ADE_AnimateDiffCombine` emits the GIF directly; the orchestrator writes it to `public/generated/<conversationId>/<messageId>.gif` and emits `animate.gif`. No `preview` events (AnimateDiff has no usable preview frames).
+
+### Case 8 — Music
+Same client/server shape again, resolved via `resolveAudioModel(modelId)` (catalog `kind: "audio"`). Two tiles, each pinned to a different model: **ACE-Step** (`song`, full track with optional sung lyrics) and **Stable Audio Open** (`instrumental`). The composer adds a style prompt, an optional lyrics field, and a length (seconds); lyrics are sent only to tiles whose descriptor has `supportsLyrics`. Each call:
+
+1. Inserts an assistant `messages` row in `streaming` status keyed by `pane_key = tileKey`, `parent_id = userMessage.id`.
+2. Streams `AudioEvent`s, translating `queued`/`progress` to `music.queued`/`music.progress`.
+3. On `audio`, writes the file (extension derived from MIME) to `public/generated/<conversationId>/<messageId>.<ext>` and emits `music.audio` with the URL path.
+4. Updates the assistant row with `content = prompt`, `attachments = [{kind: "audio", path, mime, durationSeconds, …}]`, `status = complete`.
+
+Workflows: `ace-step` is an all-in-one checkpoint (`CheckpointLoaderSimple` → model+clip+vae, `TextEncodeAceStepAudio` carries `tags`+`lyrics`, `EmptyAceStepLatentAudio`, `VAEDecodeAudio`, `SaveAudio`). `stable-audio` loads its text encoder separately — the checkpoint does **not** bundle T5, so a `CLIPLoader` reads `t5_base.safetensors` (`type: "stable_audio"`) for the `CLIPTextEncode` pair while MODEL/VAE come from the checkpoint.
+
 ## Frontend
 
-`app/page.tsx` is the mode picker + landing, with links to `/chats/history` and `/imagine/history`. `app/chat/[conversationId]/page.tsx` reads the conversation, picks a view component by `mode`, and renders. All streaming UIs are client components that consume SSE via `lib/sse/client.ts`; finalized content is loaded from the DB via `GET /api/conversations/[id]` on mount and reconstructed into the view's local state.
+`app/page.tsx` is the mode picker + landing, with links to `/chats/history`, `/imagine/history`, `/animate/history`, and `/music/history`. `app/chat/[conversationId]/page.tsx` reads the conversation, picks a view component by `mode`, and renders. All streaming UIs are client components that consume SSE via `lib/sse/client.ts`; finalized content is loaded from the DB via `GET /api/conversations/[id]` on mount and reconstructed into the view's local state.
 
 - **SingleChatView** — vertical message list, one model picker.
 - **FanoutView** — N panes in a horizontal scroll; each pane owns its own SSE reader and abort controller.
@@ -306,11 +376,13 @@ ComfyUI's `/interrupt` endpoint is **global** — it cancels whatever's running 
 - **CouncilView** — responsive grid (2 × 2 for 4 members). Score badge animates in on `scoring.complete`; hover reveals per-scorer breakdown. Failed scorers render `—`.
 - **SynthesisView** — CouncilView on top, sticky synth panel at the bottom.
 - **ImagineView** — N tiles, each pinned to an image checkpoint; per-tile rounds show prompt → progress bar → live preview thumbnail → final image. ModelSelect is filtered by `filterKind="image"`.
+- **AnimateView** — two fixed motion-preset tiles; per-tile rounds show prompt → progress bar → final GIF.
+- **MusicView** — two fixed model tiles (ACE-Step song / Stable Audio instrumental); a composer with style prompt, optional lyrics, and length; per-tile rounds show prompt → progress bar → `<audio controls>` player.
 
 History pages:
 
-- **`/chats/history`** — server component listing all non-imagine conversations, grouped by mode, newest first. Each row shows title (or first user prompt), last assistant snippet, message count, last-updated.
-- **`/imagine/history`** — server component listing imagine sessions, grouped by conversation, with a thumbnail grid per session. Backed by `listImagineGallery` which joins `conversations`/`messages` and filters on `jsonb_array_length(attachments) > 0`.
+- **`/chats/history`** — server component listing all non-media conversations (excludes imagine/animate/music), grouped by mode, newest first. Each row shows title (or first user prompt), last assistant snippet, message count, last-updated.
+- **`/imagine/history`**, **`/animate/history`**, **`/music/history`** — server components listing media sessions grouped by conversation (thumbnail grid for imagine/animate, player grid for music). Backed by `listImagineGallery` / `listAnimateGallery` / `listMusicGallery`, which share one `listGalleryByMode` helper joining `conversations`/`messages` and filtering on `jsonb_array_length(attachments) > 0`.
 
 ## Abort / cancellation
 
@@ -332,6 +404,7 @@ Every chat route handler creates an `AbortController` and ties `request.signal` 
 4. **AI SDK + Claude Agent SDK churn.** Pin exact versions for `ai`, `@anthropic-ai/claude-agent-sdk`, and `ollama-ai-provider-v2`. Own the SSE event schema rather than relying on either SDK's protocol events.
 5. **Claude subscription quota.** All Claude calls consume the user's Pro/Max quota; council/synthesis mode multiplies usage by `N * (N − 1) + N` calls per turn. The UI should surface quota-exhaustion errors clearly (the Agent SDK reports them as `error: 'rate_limit'` on `SDKAssistantMessage`).
 6. **Branching message model.** Cleaner schema, mode-aware rendering on the view layer.
-7. **ComfyUI queue is serial and `/interrupt` is global.** Fanned-out imagine prompts run one at a time; aborting one tile can cancel another that happens to be the currently-running prompt. Mitigation (not implemented yet): cross-check `/queue` before issuing `/interrupt`.
-8. **Checkpoint load is silent.** ComfyUI emits no WebSocket events while a 16 GB FLUX checkpoint loads from disk to MPS — only after `KSampler` starts. First-time generation can look like a hang. Surface "loading…" via `executing { node: <CheckpointLoaderSimple id> }` events if it becomes a UX issue.
-9. **Image storage in `public/`.** Generated PNGs live under `public/generated/` so Next can serve them statically, but they're outside the DB and the directory is gitignored. Deleting a conversation does not yet delete its files; orphaned images accumulate until manual cleanup.
+7. **ComfyUI queue is serial and `/interrupt` is global.** Fanned-out imagine/animate/music tiles run one at a time; aborting one tile can cancel another that happens to be the currently-running prompt. Mitigation (not implemented yet): cross-check `/queue` before issuing `/interrupt`.
+8. **Checkpoint load is silent.** ComfyUI emits no WebSocket events while a large checkpoint loads from disk to MPS — only after `KSampler` starts. First-time generation (FLUX image, ACE-Step audio) can look like a hang. Surface "loading…" via `executing { node: <loader id> }` events if it becomes a UX issue.
+9. **Media storage in `public/`.** Generated PNGs/GIFs/audio live under `public/generated/<conversationId>/` so Next can serve them statically; they're outside the DB and the directory is gitignored. Deleting an imagine/animate/music conversation removes its directory (path-guarded `rm` in `DELETE /api/conversations/[id]`), but a crash mid-run can still orphan files.
+10. **Audio model weights are large and partly gated.** ACE-Step (`ace_step_v1_3.5b.safetensors`, ~7 GB) is a clean download; Stable Audio Open is license-gated on Hugging Face and needs a separate `t5_base.safetensors` in `models/text_encoders/`. Missing weights surface as a ComfyUI `/prompt` 400 (`value_not_in_list` on `ckpt_name`) on first generation, not at startup — the catalog lists them unconditionally.
